@@ -68,3 +68,16 @@ func TestVersion(t *testing.T) {
 		t.Fatalf("%v %s", err, out)
 	}
 }
+
+func TestConfigInit(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "new", "config.yaml")
+	if out, err := run(t, "-c", path, "config", "init"); err != nil || !strings.Contains(out, "wrote starter") {
+		t.Fatalf("init: %v %s", err, out)
+	}
+	if _, err := run(t, "-c", path, "config", "init"); err == nil {
+		t.Fatal("init must not overwrite")
+	}
+	if out, err := run(t, "-c", path, "config", "validate"); err != nil || !strings.Contains(out, "OK (0 instances") {
+		t.Fatalf("starter should validate: %v %s", err, out)
+	}
+}

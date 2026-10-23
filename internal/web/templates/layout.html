@@ -22,6 +22,7 @@
 <main>
 {{if .Flash}}<p class="flash ok">{{.Flash}}</p>{{end}}
 {{if .FlashErr}}<p class="flash err">{{.FlashErr}}</p>{{end}}
+{{if and (not .Configured) (ne .Page "config")}}<p class="flash warn">No qBittorrent instances configured yet. <a href="{{url "config"}}">Open the config editor</a> to add them.</p>{{end}}
 {{template "content" .}}
 </main>
 <footer class="muted">

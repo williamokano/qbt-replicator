@@ -93,12 +93,15 @@ func newServer(svc *app.Service, logger *slog.Logger) (*Server, error) {
 	mux.HandleFunc("POST /actions/sync", s.actionSync)
 	mux.HandleFunc("POST /actions/replicate", s.actionReplicate)
 	mux.HandleFunc("POST /actions/unreplicate", s.actionUnreplicate)
+	mux.HandleFunc("POST /config", s.configSave)
 
 	mux.HandleFunc("GET /api/v1/status", s.apiStatus)
 	mux.HandleFunc("GET /api/v1/torrents", s.apiTorrents)
 	mux.HandleFunc("GET /api/v1/plan", s.apiPlan)
 	mux.HandleFunc("GET /api/v1/events", s.apiEvents)
 	mux.HandleFunc("GET /api/v1/config", s.apiConfig)
+	mux.HandleFunc("GET /api/v1/config/raw", s.apiConfigRaw)
+	mux.HandleFunc("PUT /api/v1/config/raw", s.apiConfigSave)
 	mux.HandleFunc("POST /api/v1/sync", s.apiSync)
 	mux.HandleFunc("POST /api/v1/replicate", s.apiReplicate)
 	mux.HandleFunc("POST /api/v1/unreplicate", s.apiUnreplicate)
@@ -161,13 +164,12 @@ func (s *Server) recoverer(next http.Handler) http.Handler {
 	})
 }
 
+// basicAuth reads the credentials per request so changes saved in the config
+// editor apply immediately.
 func (s *Server) basicAuth(next http.Handler) http.Handler {
-	auth := s.svc.Config().Server.Auth
-	if !auth.Enabled() {
-		return next
-	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/healthz" || r.URL.Path == "/readyz" {
+		auth := s.svc.Config().Server.Auth
+		if !auth.Enabled() || r.URL.Path == "/healthz" || r.URL.Path == "/readyz" {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -245,6 +247,7 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, page string, dat
 	data["FlashErr"] = r.URL.Query().Get("err")
 	data["Refresh"] = r.URL.Query().Get("refresh")
 	data["DryRun"] = s.svc.Config().Daemon.DryRun
+	data["Configured"] = s.svc.Config().Configured()
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := s.pages[page].ExecuteTemplate(w, "layout.html", data); err != nil {
 		s.log.Error("rendering template", "page", page, "err", err)

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/williamokano/qbt-replicator/internal/config"
@@ -15,26 +16,43 @@ import (
 	"github.com/williamokano/qbt-replicator/internal/version"
 )
 
-// Service exposes replicator operations.
+// Service exposes replicator operations. The engine is swapped atomically when
+// the configuration is changed from the UI/API (see Reload).
 type Service struct {
+	mu      sync.RWMutex
+	saveMu  sync.Mutex
 	engine  *replicator.Engine
+	events  *events.Log
+	metrics *replicator.Metrics
+	reload  chan struct{}
 	started time.Time
 }
 
 // New builds a Service from configuration.
 func New(cfg *config.Config, logger *slog.Logger) (*Service, error) {
-	eng, err := replicator.NewEngine(cfg, events.New(500, logger), replicator.NewMetrics())
+	s := &Service{
+		events:  events.New(500, logger),
+		metrics: replicator.NewMetrics(),
+		reload:  make(chan struct{}, 1),
+		started: time.Now(),
+	}
+	eng, err := replicator.NewEngine(cfg, s.events, s.metrics)
 	if err != nil {
 		return nil, err
 	}
-	return &Service{engine: eng, started: time.Now()}, nil
+	s.engine = eng
+	return s, nil
 }
 
-// Engine returns the underlying engine (daemon loop, metrics).
-func (s *Service) Engine() *replicator.Engine { return s.engine }
+// Engine returns the current engine (daemon loop, metrics).
+func (s *Service) Engine() *replicator.Engine {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.engine
+}
 
 // Config returns the active configuration.
-func (s *Service) Config() *config.Config { return s.engine.Config() }
+func (s *Service) Config() *config.Config { return s.Engine().Config() }
 
 // InstanceStatus is a per-instance summary.
 type InstanceStatus struct {
@@ -70,14 +88,14 @@ type Status struct {
 
 // Status fetches a fresh snapshot and summarizes it.
 func (s *Service) Status(ctx context.Context) Status {
-	return s.statusFrom(s.engine.Snapshot(ctx))
+	return s.statusFrom(s.Engine().Snapshot(ctx))
 }
 
 // CachedStatus summarizes the last snapshot, fetching one if none exists yet.
 func (s *Service) CachedStatus(ctx context.Context) Status {
-	snap := s.engine.LastSnapshot()
+	snap := s.Engine().LastSnapshot()
 	if snap == nil {
-		snap = s.engine.Snapshot(ctx)
+		snap = s.Engine().Snapshot(ctx)
 	}
 	return s.statusFrom(snap)
 }
@@ -87,7 +105,7 @@ func (s *Service) statusFrom(snap *replicator.Snapshot) Status {
 	st := Status{
 		Version: version.Version, StartedAt: s.started, DryRun: cfg.Daemon.DryRun,
 		DaemonOn: cfg.Daemon.Enabled, Interval: cfg.Daemon.Interval.String(),
-		SnapshotAt: snap.At, LastRun: s.engine.LastRun(),
+		SnapshotAt: snap.At, LastRun: s.Engine().LastRun(),
 	}
 	if st.LastRun != nil && st.LastRun.Plan != nil {
 		st.PendingCount = len(st.LastRun.Plan.Actions)
@@ -149,9 +167,9 @@ type TorrentFilter struct {
 
 // Torrents returns the torrent × instance matrix.
 func (s *Service) Torrents(ctx context.Context, f TorrentFilter) []TorrentRow {
-	snap := s.engine.LastSnapshot()
+	snap := s.Engine().LastSnapshot()
 	if snap == nil || f.Fresh {
-		snap = s.engine.Snapshot(ctx)
+		snap = s.Engine().Snapshot(ctx)
 	}
 	tag := s.Config().Daemon.ReplicaTag
 	rows := map[string]*TorrentRow{}
@@ -200,30 +218,30 @@ func (s *Service) Torrents(ctx context.Context, f TorrentFilter) []TorrentRow {
 
 // Plan previews actions without executing them.
 func (s *Service) Plan(ctx context.Context) *replicator.Plan {
-	p, _ := s.engine.Plan(ctx)
+	p, _ := s.Engine().Plan(ctx)
 	return p
 }
 
 // SyncOnce runs one reconcile pass.
 func (s *Service) SyncOnce(ctx context.Context, dryRun bool) *replicator.RunReport {
-	return s.engine.RunOnce(ctx, dryRun)
+	return s.Engine().RunOnce(ctx, dryRun)
 }
 
 // TriggerSync asks the daemon loop to run now (non-blocking).
-func (s *Service) TriggerSync() { s.engine.Trigger() }
+func (s *Service) TriggerSync() { s.Engine().Trigger() }
 
 // Replicate manually replicates a torrent.
 func (s *Service) Replicate(ctx context.Context, req replicator.ReplicateRequest) ([]replicator.Result, error) {
-	return s.engine.Replicate(ctx, req)
+	return s.Engine().Replicate(ctx, req)
 }
 
 // Unreplicate removes replicas (files kept).
 func (s *Service) Unreplicate(ctx context.Context, hash string, on []string, dryRun bool) ([]replicator.Result, error) {
-	return s.engine.Unreplicate(ctx, hash, on, dryRun)
+	return s.Engine().Unreplicate(ctx, hash, on, dryRun)
 }
 
 // Events returns recent events, newest first.
-func (s *Service) Events(limit int) []events.Event { return s.engine.Events().Recent(limit) }
+func (s *Service) Events(limit int) []events.Event { return s.Engine().Events().Recent(limit) }
 
 // ConfigRedacted returns the configuration with secrets masked.
 func (s *Service) ConfigRedacted() config.Config { return s.Config().Redacted() }

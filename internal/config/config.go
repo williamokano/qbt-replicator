@@ -321,7 +321,8 @@ func (c *Config) Validate() error {
 	}
 	c.Server.BasePath = path.Clean(c.Server.BasePath)
 
-	if len(c.Instances) < 2 {
+	// No instances at all is "setup mode" (fresh starter config): valid, idle.
+	if len(c.Instances) == 1 {
 		errs = append(errs, errors.New("at least two instances are required"))
 	}
 	names := map[string]bool{}
@@ -348,7 +349,7 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	if len(c.Rules) == 0 {
+	if len(c.Rules) == 0 && len(c.Instances) > 0 {
 		errs = append(errs, errors.New("at least one rule is required"))
 	}
 	ruleNames := map[string]bool{}
@@ -384,6 +385,9 @@ func (c *Config) Validate() error {
 	}
 	return errors.Join(errs...)
 }
+
+// Configured reports whether any instance is defined (false = setup mode).
+func (c *Config) Configured() bool { return len(c.Instances) > 0 }
 
 // Instance returns the instance config by name.
 func (c *Config) Instance(name string) (InstanceConfig, bool) {
