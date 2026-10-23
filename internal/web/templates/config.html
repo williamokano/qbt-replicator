@@ -1,7 +1,54 @@
 {{define "content"}}
 <h2>Configuration</h2>
-<p class="muted">Loaded from <code>{{.Config.Path}}</code>. Secrets are redacted. Edit the file and restart to change it.</p>
-<h3>Rules</h3>
+<p class="muted">File <code>{{.File.Path}}</code>. Saving validates the YAML, keeps the previous file as
+<code>config.yaml.bak</code> and applies it immediately (no restart needed, except for
+<code>server.listen</code>, <code>server.base_path</code> and <code>log</code>).</p>
+{{if .FileErr}}<p class="flash err">Cannot read the config file: {{.FileErr}}</p>{{end}}
+{{if not .Configured}}<p class="flash warn">Setup mode: no qBittorrent instances are configured yet. Add at least two
+instances and one rule below, then save.</p>{{end}}
+{{if .SaveErr}}<div class="flash err"><strong>Not saved:</strong><pre class="plain">{{.SaveErr}}</pre></div>{{end}}
+{{if .File.Overrides}}<p class="flash warn">These environment variables override values from the file:
+{{range .File.Overrides}}<code>{{.}}</code> {{end}}</p>{{end}}
+
+<form method="post" action="{{url "config"}}" class="editor">
+  <textarea name="content" spellcheck="false" rows="32">{{.Content}}</textarea>
+  <div class="toolbar">
+    <button type="submit">Save &amp; apply</button>
+    <a href="{{url "config"}}">Discard changes</a>
+    <span class="muted small">Passwords are shown as <code>********</code>; leave them as-is to keep the saved value.
+      <code>${VAR}</code> values are read from the container environment.</span>
+  </div>
+</form>
+
+<details>
+<summary>Reference: example instance and rule</summary>
+<pre>instances:
+  - name: qbt-1
+    url: http://gluetun-1:8080
+    username: admin
+    password: ${QBT1_PASSWORD}      # or the literal password
+    # path_mappings: [{instance: /downloads, canonical: /data}]
+  - name: qbt-2
+    url: http://gluetun-2:8080
+    username: admin
+    password: ${QBT2_PASSWORD}
+rules:
+  - name: main
+    sources: [qbt-1]       # ["*"] = any instance
+    targets: ["*"]         # every other instance
+    settle_delay: 2m
+    filter:
+      categories: []
+      exclude_tags: [no-replicate]
+      include_private: false   # private trackers may ban multi-IP seeding
+      min_size: 0
+    add: {category: inherit, skip_checking: true, start: true}
+    remove_orphans: true
+    follow_relocation: true</pre>
+</details>
+
+<h3>Effective rules</h3>
+{{if .Config.Rules}}
 <table>
   <tr><th>Name</th><th>Sources</th><th>Targets</th><th>Settle</th><th>Private</th><th>Orphans</th><th>Relocation</th></tr>
   {{range .Config.Rules}}
@@ -10,6 +57,5 @@
       <td>{{if .RemoveOrphans}}remove{{else}}keep{{end}}</td><td>{{if .FollowRelocation}}follow{{else}}ignore{{end}}</td></tr>
   {{end}}
 </table>
-<h3>Full configuration</h3>
-<pre>{{.JSON}}</pre>
+{{else}}<p class="muted">No rules yet.</p>{{end}}
 {{end}}

@@ -54,6 +54,13 @@ func NewMetrics() *Metrics {
 	return m
 }
 
+// ResetInstances clears per-instance series (after a config reload removed instances).
+func (m *Metrics) ResetInstances() {
+	for _, g := range []*prometheus.GaugeVec{m.up, m.upSpeed, m.dlSpeed, m.torrents, m.replicas} {
+		g.Reset()
+	}
+}
+
 func (m *Metrics) observeSnapshot(s *Snapshot, replicaTag string) {
 	for name, st := range s.Instances {
 		if !st.Healthy {

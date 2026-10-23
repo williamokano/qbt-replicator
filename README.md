@@ -63,30 +63,30 @@ for a full stack with three gluetun tunnels.
 
 ### Portainer
 
-[`docker-compose.portainer.yml`](docker-compose.portainer.yml) is a self-contained stack:
-the whole `config.yaml` is embedded as a Compose `config`, so nothing has to exist on the host.
+[`docker-compose.portainer.yml`](docker-compose.portainer.yml) needs no config file:
 
-1. **Stacks → Add stack**, paste the file into the web editor (or use *Repository* pointing
-   at this repo with compose path `docker-compose.portainer.yml`).
-2. Under **Environment variables** set `QBT1_URL`, `QBT2_URL`, `QBT3_URL`, `QBT1_PASSWORD`,
-   `QBT2_PASSWORD`, `QBT3_PASSWORD`, and optionally `QBT_USERNAME` (default `admin`),
-   `QBTR_PORT` (default `8085`), `QBTR_UI_USER`/`QBTR_UI_PASSWORD`, `QBTR_NETWORK`.
-3. `QBTR_NETWORK` must be an existing Docker network that your qBittorrent/gluetun containers
-   are on (default `qbt_default`), so URLs like `http://gluetun-1:8080` resolve. To reach them
-   via the NAS IP instead, drop `external: true`/`name:` from the `networks` section.
-4. Deploy. Edit the embedded rules in the stack editor and *Update the stack* to change them.
+1. **Stacks → Add stack**, paste the file (or use *Repository* with compose path
+   `docker-compose.portainer.yml`), optionally set `QBTR_PORT` (default `8085`), deploy.
+2. On first start qbt-replicator writes a minimal `/config/config.yaml` into the named
+   volume and runs in **setup mode** (no instances, nothing happens).
+3. Open `http://<nas>:8085/config`, add your instances and a rule, click **Save & apply**.
 
-Passwords are passed as container environment variables and expanded by qbt-replicator, so
-any characters (quotes, `#`, `$`, `:`) are safe. Needs a Portainer whose Compose supports
-inline `configs.content` (Compose ≥ 2.23); on older versions bind-mount a config file instead
-(see the comment at the top of the file).
+To keep WebUI passwords out of the file, add them as stack environment variables (and
+uncomment them in the `environment:` section), then write `password: ${QBT1_PASSWORD}` in
+the editor. To reach qBittorrent by container name, join the stack to their network (see
+the commented `networks:` section); otherwise use the NAS IP and published WebUI ports.
 
-The container runs as the distroless `nonroot` user (uid/gid 65532). `/config` must be
-**writable** by that user if you want the planner state (`state.json`) to survive
-restarts; otherwise it just logs a warning.
+### Config editor
 
-Images: `ghcr.io/williamokano/qbt-replicator:latest` (main), `:sha-<commit>`, and
-`:X.Y.Z` / `:X.Y` / `:X` for releases. Platforms: `linux/amd64`, `linux/arm64`.
+The **Config** page edits the YAML file directly. On save it validates the config, keeps
+the previous file as `config.yaml.bak`, writes the new one atomically and **applies it
+without a restart** (only `server.listen`, `server.base_path` and `log` need one). Literal
+passwords are shown as `********`; leave them as-is to keep the stored value. The same is
+available over the API: `GET /api/v1/config/raw`, `PUT /api/v1/config/raw` (YAML body).
+Protect the UI with `server.auth` if it is reachable by others: it can change the config.
+
+If no config file exists when `serve` starts, a starter file is created (setup mode).
+`qbt-replicator config init` writes the same starter file.
 
 ## Running outside Docker
 
@@ -155,7 +155,7 @@ qbt-replicator torrents list [--instance X] [--search S] [--category C] [--compl
 qbt-replicator replicate <hash> [--from X] [--to Y,Z] [--force] [--dry-run]
 qbt-replicator unreplicate <hash> [--on Y] [--dry-run]   # refuses non-replicas
 qbt-replicator events [--limit 50]                    # activity log of the running daemon
-qbt-replicator config validate | show                 # show redacts secrets
+qbt-replicator config init | validate | show          # init writes a starter file; show redacts secrets
 qbt-replicator healthcheck [--url ...]                # used by Docker HEALTHCHECK
 qbt-replicator version
 ```
@@ -169,6 +169,8 @@ Inside Docker: `docker exec qbt-replicator /qbt-replicator plan`.
 | Method | Path | |
 |---|---|---|
 | GET | `/`, `/torrents`, `/plan`, `/events`, `/config` | HTML UI (`?refresh=15` auto-refreshes) |
+| POST | `/config` | config editor save (form field `content`) |
+| GET / PUT | `/api/v1/config/raw` | read (secrets masked) / replace the YAML config |
 | POST | `/actions/sync`, `/actions/replicate`, `/actions/unreplicate` | UI form actions |
 | GET | `/api/v1/status[?fresh=1]`, `/api/v1/torrents`, `/api/v1/plan`, `/api/v1/events?limit=N`, `/api/v1/config` | JSON |
 | POST | `/api/v1/sync` `{"dry_run":bool}` | run a pass, returns the report |

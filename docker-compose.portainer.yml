@@ -1,114 +1,47 @@
-# qbt-replicator stack for Portainer (Stacks -> Add stack -> Web editor or Repository).
+# qbt-replicator stack for Portainer (Stacks -> Add stack -> Web editor, or
+# Repository with compose path "docker-compose.portainer.yml").
 #
-# The whole config.yaml is embedded below as a Compose "config", so no file has
-# to exist on the host. Fill in the variables in Portainer's "Environment
-# variables" section of the stack (or upload a .env file):
+# No configuration file is needed: on first start qbt-replicator creates a
+# minimal /config/config.yaml (in the named volume below) and starts in setup
+# mode. Open http://<nas>:8085/config, add your qBittorrent instances and a
+# rule, and click "Save & apply". Changes apply immediately; the file persists
+# in the volume across redeploys.
 #
-#   QBT1_URL       e.g. http://gluetun-1:8080   (how qbt-replicator reaches the WebUI)
-#   QBT2_URL       e.g. http://gluetun-2:8080
-#   QBT3_URL       e.g. http://gluetun-3:8080
-#   QBT_USERNAME   WebUI username (same on all instances; edit below if not)
-#   QBT1_PASSWORD, QBT2_PASSWORD, QBT3_PASSWORD
-#   QBTR_PORT      host port for the UI (default 8085)
-#   QBTR_UI_USER / QBTR_UI_PASSWORD   optional basic auth for the UI (empty = off)
-#   QBTR_NETWORK   existing Docker network shared with your qBittorrent/gluetun
-#                  containers (default qbt_default; see "networks" at the bottom)
-#
-# Requires Portainer with Docker Compose >= 2.23 (inline "configs.content").
-# Older Portainer: delete the "configs" sections and bind-mount a config file
-# instead, e.g.  - /opt/qbt-replicator/config.yaml:/config/config.yaml:ro
-#
-# Edit the rules in the embedded config to taste; redeploy the stack to apply.
-# Inside the embedded config, "$${VAR}" is expanded by qbt-replicator from the
-# container environment; a plain "${VAR}" is substituted by Compose/Portainer.
+# Optional Portainer environment variables:
+#   QBTR_PORT       host port for the web UI (default 8085)
+#   TZ              time zone (default Etc/UTC)
+#   QBT1_PASSWORD…  any variable you add here can be referenced in the config
+#                   editor as ${QBT1_PASSWORD}, keeping secrets out of the file.
 
 services:
   qbt-replicator:
     image: ghcr.io/williamokano/qbt-replicator:latest
     container_name: qbt-replicator
     restart: unless-stopped
-    command: ["serve"]
     ports:
       - "${QBTR_PORT:-8085}:8080"
     environment:
       TZ: ${TZ:-Etc/UTC}
-      # Secrets are handed to the container as env vars and expanded by
-      # qbt-replicator itself ("$${...}" below), so any character is safe in them.
-      QBT_USERNAME: ${QBT_USERNAME:-admin}
-      QBT1_PASSWORD: ${QBT1_PASSWORD:?set QBT1_PASSWORD}
-      QBT2_PASSWORD: ${QBT2_PASSWORD:?set QBT2_PASSWORD}
-      QBT3_PASSWORD: ${QBT3_PASSWORD:?set QBT3_PASSWORD}
-      QBTR_UI_USER: ${QBTR_UI_USER:-}
-      QBTR_UI_PASSWORD: ${QBTR_UI_PASSWORD:-}
-      # Any scalar setting can also be overridden here, e.g.:
-      # QBTR_DAEMON_DRY_RUN: "true"
-      # QBTR_LOG_LEVEL: debug
-    configs:
-      - source: qbtr_config
-        target: /config/config.yaml
+      # Uncomment to keep WebUI passwords out of the config file
+      # (reference them in the editor as ${QBT1_PASSWORD}, ...):
+      # QBT1_PASSWORD: ${QBT1_PASSWORD}
+      # QBT2_PASSWORD: ${QBT2_PASSWORD}
+      # QBT3_PASSWORD: ${QBT3_PASSWORD}
     volumes:
-      # Holds state.json (orphan confirmations survive restarts).
-      - qbtr_data:/config
-    networks:
-      - qbt
-    # The image already defines a HEALTHCHECK (qbt-replicator healthcheck).
+      - qbtr_config:/config   # config.yaml, config.yaml.bak, state.json
+    # If your qBittorrent/gluetun containers are on a user-defined network and you
+    # want to reach them by container name (http://gluetun-1:8080), join it:
+    # networks: [qbt]
     logging:
       driver: json-file
       options:
         max-size: 10m
         max-file: "3"
 
-configs:
-  qbtr_config:
-    content: |
-      log:
-        level: info
-        format: text
-      server:
-        listen: ":8080"
-        auth:
-          username: $${QBTR_UI_USER}
-          password: $${QBTR_UI_PASSWORD}
-      daemon:
-        enabled: true
-        interval: 30s
-        dry_run: false
-        replica_tag: qbtr-replica
-      instances:
-        - name: qbt-1
-          url: "${QBT1_URL:?set QBT1_URL}"
-          username: $${QBT_USERNAME}
-          password: $${QBT1_PASSWORD}
-        - name: qbt-2
-          url: "${QBT2_URL:?set QBT2_URL}"
-          username: $${QBT_USERNAME}
-          password: $${QBT2_PASSWORD}
-        - name: qbt-3
-          url: "${QBT3_URL:?set QBT3_URL}"
-          username: $${QBT_USERNAME}
-          password: $${QBT3_PASSWORD}
-      rules:
-        - name: master-to-all
-          sources: [qbt-1]
-          targets: ["*"]
-          settle_delay: 2m
-          filter:
-            exclude_tags: [no-replicate]
-            include_private: false
-          add:
-            category: inherit
-            skip_checking: true
-            start: true
-          remove_orphans: true
-          follow_relocation: true
-
 volumes:
-  qbtr_data:
+  qbtr_config:
 
-networks:
-  # Join the network your qBittorrent/gluetun containers are on so the URLs above
-  # resolve by container name. If you'd rather reach them via the NAS IP and the
-  # published WebUI ports, remove "external: true" and "name:" to get a private network.
-  qbt:
-    external: true
-    name: ${QBTR_NETWORK:-qbt_default}
+# networks:
+#   qbt:
+#     external: true
+#     name: your_qbittorrent_network

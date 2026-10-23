@@ -17,6 +17,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/williamokano/qbt-replicator/internal/app"
+	"github.com/williamokano/qbt-replicator/internal/config"
 	"github.com/williamokano/qbt-replicator/internal/replicator"
 	"github.com/williamokano/qbt-replicator/internal/version"
 	"github.com/williamokano/qbt-replicator/internal/web"
@@ -29,11 +30,23 @@ func newServeCmd(g *globals) *cobra.Command {
 		Use:   "serve",
 		Short: "Run the replication daemon and the web UI/API",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			path := config.ResolvePath(g.configPath)
+			created := false
+			if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+				if err := config.WriteStarter(path); err != nil {
+					return fmt.Errorf("no config at %s and could not create one: %w", path, err)
+				}
+				created = true
+			}
+			g.configPath = path
 			svc, err := g.service()
 			if err != nil {
 				return err
 			}
 			cfg := g.cfg
+			if created {
+				g.logger.Warn("no configuration found; created a starter config, finish it in the web UI (Config page)", "path", path)
+			}
 			if listen != "" {
 				cfg.Server.Listen = listen
 			}
@@ -53,14 +66,16 @@ func newServeCmd(g *globals) *cobra.Command {
 				"auth", cfg.Server.Auth.Enabled(), "config", cfg.Path, "version", version.Version)
 
 			var wg sync.WaitGroup
-			if cfg.Daemon.Enabled && !noDaemon {
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
-					svc.Engine().Run(ctx)
-				}()
-			} else {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				svc.RunDaemon(ctx, noDaemon)
+			}()
+			if !cfg.Daemon.Enabled || noDaemon {
 				g.logger.Info("daemon disabled; UI/API only")
+			}
+			if !cfg.Configured() {
+				g.logger.Warn("no instances configured yet (setup mode); add them on the Config page")
 			}
 			errCh := make(chan error, 1)
 			go func() { errCh <- srv.Serve(ln) }()
@@ -298,6 +313,18 @@ func newConfigCmd(g *globals) *cobra.Command {
 					fmt.Fprintf(cmd.OutOrStdout(), "WARNING: rule %q replicates private torrents; many private trackers forbid seeding one account from several IPs\n", r.Name)
 				}
 			}
+			return nil
+		},
+	})
+	cmd.AddCommand(&cobra.Command{
+		Use:   "init",
+		Short: "Write a starter configuration file (never overwrites)",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			path := config.ResolvePath(g.configPath)
+			if err := config.WriteStarter(path); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "wrote starter config to %s\n", path)
 			return nil
 		},
 	})

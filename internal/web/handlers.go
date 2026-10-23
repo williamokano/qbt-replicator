@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -54,9 +55,42 @@ func (s *Server) eventsPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) configPage(w http.ResponseWriter, r *http.Request) {
+	s.renderConfig(w, r, "", nil, http.StatusOK)
+}
+
+// renderConfig shows the editor; content overrides the file (after a failed save).
+func (s *Server) renderConfig(w http.ResponseWriter, r *http.Request, content string, saveErr error, status int) {
 	cfg := s.svc.ConfigRedacted()
-	b, _ := json.MarshalIndent(cfg, "", "  ")
-	s.render(w, r, "config", map[string]any{"Config": cfg, "JSON": string(b)})
+	file, err := s.svc.RawConfig()
+	if content == "" {
+		content = file.Content
+	}
+	data := map[string]any{"Config": cfg, "File": file, "Content": content, "FileErr": err}
+	if saveErr != nil {
+		data["SaveErr"] = saveErr.Error()
+	}
+	if status != http.StatusOK {
+		w.WriteHeader(status)
+	}
+	s.render(w, r, "config", data)
+}
+
+func (s *Server) configSave(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		s.redirect(w, r, "/config", "", err)
+		return
+	}
+	content := r.PostForm.Get("content")
+	res, err := s.svc.SaveConfig(content)
+	if err != nil {
+		s.renderConfig(w, r, content, err, http.StatusUnprocessableEntity)
+		return
+	}
+	msg := "Configuration saved and applied."
+	if len(res.RestartRequired) > 0 {
+		msg += " Restart the container for: " + strings.Join(res.RestartRequired, ", ") + "."
+	}
+	s.redirect(w, r, "/config", msg, nil)
 }
 
 // --- HTML form actions ---
@@ -145,6 +179,35 @@ func (s *Server) apiEvents(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) apiConfig(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, s.svc.ConfigRedacted())
+}
+
+func (s *Server) apiConfigRaw(w http.ResponseWriter, _ *http.Request) {
+	file, err := s.svc.RawConfig()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/yaml; charset=utf-8")
+	_, _ = w.Write([]byte(file.Content))
+}
+
+// apiConfigSave replaces the config file with the request body (YAML).
+func (s *Server) apiConfigSave(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	res, err := s.svc.SaveConfig(string(body))
+	if err != nil {
+		status := http.StatusUnprocessableEntity
+		if res.Saved {
+			status = http.StatusInternalServerError
+		}
+		writeErr(w, status, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
 }
 
 type syncBody struct {
