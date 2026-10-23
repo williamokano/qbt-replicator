@@ -8,7 +8,7 @@ LDFLAGS := -s -w -X $(PKG)/internal/version.Version=$(VERSION) \
            -X $(PKG)/internal/version.Date=$(DATE)
 IMAGE   ?= ghcr.io/williamokano/qbt-replicator
 
-.PHONY: all build test cover lint fmt tidy run docker clean
+.PHONY: all build test cover lint fmt tidy run docker snapshot release-check clean
 
 all: fmt lint test build
 
@@ -36,6 +36,13 @@ run: build
 
 docker:
 	docker build --build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) --build-arg DATE=$(DATE) -t $(IMAGE):dev .
+
+# Local GoReleaser dry run (no publishing).
+snapshot:
+	goreleaser release --snapshot --clean
+
+release-check:
+	goreleaser check
 
 clean:
 	rm -rf bin dist coverage.out

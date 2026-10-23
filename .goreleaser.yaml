@@ -1,0 +1,62 @@
+# GoReleaser builds the binaries/archives and uploads them to the GitHub release.
+# Versions/tags are decided by release-please from conventional commits (see
+# release-please-config.json); container images are built by docker/build-push-action
+# in .github/workflows/release.yml.
+version: 2
+project_name: qbt-replicator
+
+builds:
+  - id: qbt-replicator
+    main: ./cmd/qbt-replicator
+    binary: qbt-replicator
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/williamokano/qbt-replicator/internal/version.Version={{ .Version }}
+      - -X github.com/williamokano/qbt-replicator/internal/version.Commit={{ .FullCommit }}
+      - -X github.com/williamokano/qbt-replicator/internal/version.Date={{ .CommitDate }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+
+archives:
+  - id: default
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - README.md
+      - config.example.yaml
+      - docker-compose.portainer.yml
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  use: github
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\([[:word:]-]+\))??!?:.+$'
+      order: 0
+    - title: Bug fixes
+      regexp: '^.*?fix(\([[:word:]-]+\))??!?:.+$'
+      order: 1
+    - title: Other changes
+      order: 999
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore\(release\):'
+      - '^Merge '
+
+release:
+  # release-please creates the release (with its changelog) first; keep its notes
+  # and only attach the artifacts. For a manually pushed tag GoReleaser creates it.
+  mode: keep-existing
+  footer: |
+    **Docker image:** `ghcr.io/williamokano/qbt-replicator:{{ .Version }}`
