@@ -1,0 +1,67 @@
+{{define "content"}}
+{{with .Status}}
+<section class="toolbar">
+  <form method="post" action="{{url "actions/sync"}}">
+    <input type="hidden" name="return" value="/">
+    <button type="submit">Sync now</button>
+    <label><input type="checkbox" name="dry_run"> dry run</label>
+  </form>
+  <a href="?fresh=1">Refresh instance state</a>
+  <span class="muted">snapshot {{since .SnapshotAt}} · daemon {{if .DaemonOn}}every {{.Interval}}{{else}}disabled{{end}}</span>
+</section>
+
+<section class="cards">
+{{range .Instances}}
+  <div class="card {{if not .Healthy}}down{{end}}">
+    <h3>{{.Name}}</h3>
+    {{if .Healthy}}
+      <p><span class="badge {{if eq .ConnectionStatus "connected"}}ok{{else}}warn{{end}}">{{.ConnectionStatus}}</span>
+         <span class="muted">{{.AppVersion}} · API {{.APIVersion}}{{if .ListenPort}} · port {{.ListenPort}}{{end}}</span></p>
+      <p>↑ <strong>{{bytes .UpSpeed}}/s</strong> &nbsp; ↓ {{bytes .DlSpeed}}/s</p>
+      <p>{{.Torrents}} torrents · {{.Sources}} sources · {{.Replicas}} replicas</p>
+    {{else}}
+      <p class="err">unreachable: {{.Error}}</p>
+    {{end}}
+    <p class="muted small">{{.URL}}</p>
+  </div>
+{{end}}
+  <div class="card total">
+    <h3>Total</h3>
+    <p>↑ <strong>{{bytes .TotalUp}}/s</strong></p>
+    <p>↓ {{bytes .TotalDown}}/s</p>
+  </div>
+</section>
+
+<h2>Last pass</h2>
+{{with .LastRun}}
+  <p>{{ts .Started}} · {{dur .Duration}} · {{len .Results}} action(s), {{.Failed}} failed{{if .DryRun}} · dry run{{end}}</p>
+  {{if .Results}}
+  <table>
+    <tr><th>Action</th><th>Source → Target</th><th>Torrent</th><th>Result</th></tr>
+    {{range .Results}}
+    <tr><td>{{.Action.Type}}</td><td>{{.Action.Source}} → {{.Action.Target}}</td><td>{{.Action.Name}}</td>
+        <td>{{if .Error}}<span class="err">{{.Error}}</span>{{else if .DryRun}}dry-run{{else}}ok{{end}}</td></tr>
+    {{end}}
+  </table>
+  {{end}}
+  {{range .Plan.Notes}}<p class="muted small">note: {{.}}</p>{{end}}
+{{else}}
+  <p class="muted">No pass has run yet.</p>
+{{end}}
+{{end}}
+
+<h2>Recent activity</h2>
+{{template "eventtable" .Events}}
+<p><a href="{{url "events"}}">All activity →</a></p>
+{{end}}
+
+{{define "eventtable"}}
+{{if .}}
+<table>
+  <tr><th>Time</th><th>Level</th><th>Kind</th><th>Instance</th><th>Message</th></tr>
+  {{range .}}
+  <tr class="lvl-{{.Level}}"><td class="nowrap">{{ts .Time}}</td><td>{{.Level}}</td><td>{{.Kind}}</td><td>{{.Instance}}</td><td>{{.Message}}</td></tr>
+  {{end}}
+</table>
+{{else}}<p class="muted">No activity yet.</p>{{end}}
+{{end}}
