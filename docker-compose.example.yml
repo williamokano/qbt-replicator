@@ -1,0 +1,77 @@
+# Example: three ProtonVPN tunnels (gluetun) each with its own qBittorrent,
+# all mounting the SAME storage at the SAME path, plus qbt-replicator.
+# Adapt VPN settings to your provider; see https://github.com/qdm12/gluetun-wiki.
+
+x-gluetun: &gluetun
+  image: qmcgaw/gluetun:latest
+  cap_add: [NET_ADMIN]
+  devices: [/dev/net/tun:/dev/net/tun]
+  restart: unless-stopped
+
+x-qbittorrent: &qbittorrent
+  image: lscr.io/linuxserver/qbittorrent:latest
+  restart: unless-stopped
+  environment: &qbt-env
+    PUID: "1000"
+    PGID: "1000"
+    TZ: Etc/UTC
+    WEBUI_PORT: "8080"
+
+services:
+  gluetun-1:
+    <<: *gluetun
+    environment:
+      VPN_SERVICE_PROVIDER: protonvpn
+      VPN_TYPE: wireguard
+      WIREGUARD_PRIVATE_KEY: ${WG_KEY_1}
+      VPN_PORT_FORWARDING: "on"   # seeding works much better with a forwarded port
+      PORT_FORWARD_ONLY: "on"
+  qbt-1:
+    <<: *qbittorrent
+    network_mode: service:gluetun-1
+    volumes:
+      - ./qbt-1:/config
+      - /mnt/storage/torrents:/data   # identical path in every instance
+
+  gluetun-2:
+    <<: *gluetun
+    environment:
+      VPN_SERVICE_PROVIDER: protonvpn
+      VPN_TYPE: wireguard
+      WIREGUARD_PRIVATE_KEY: ${WG_KEY_2}
+      VPN_PORT_FORWARDING: "on"
+      PORT_FORWARD_ONLY: "on"
+  qbt-2:
+    <<: *qbittorrent
+    network_mode: service:gluetun-2
+    volumes:
+      - ./qbt-2:/config
+      - /mnt/storage/torrents:/data
+
+  gluetun-3:
+    <<: *gluetun
+    environment:
+      VPN_SERVICE_PROVIDER: protonvpn
+      VPN_TYPE: wireguard
+      WIREGUARD_PRIVATE_KEY: ${WG_KEY_3}
+      VPN_PORT_FORWARDING: "on"
+      PORT_FORWARD_ONLY: "on"
+  qbt-3:
+    <<: *qbittorrent
+    network_mode: service:gluetun-3
+    volumes:
+      - ./qbt-3:/config
+      - /mnt/storage/torrents:/data
+
+  qbt-replicator:
+    image: ghcr.io/williamokano/qbt-replicator:latest
+    restart: unless-stopped
+    # Talks to the WebUIs only (http://gluetun-N:8080); it never touches /data.
+    environment:
+      QBT1_PASSWORD: ${QBT1_PASSWORD}
+      QBT2_PASSWORD: ${QBT2_PASSWORD}
+      QBT3_PASSWORD: ${QBT3_PASSWORD}
+    volumes:
+      - ./qbt-replicator:/config   # config.yaml lives here; must be writable for state.json
+    ports:
+      - "8085:8080"

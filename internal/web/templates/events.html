@@ -1,0 +1,16 @@
+{{define "content"}}
+<h2>Activity</h2>
+{{template "eventtable" .Events}}
+{{end}}
+
+{{define "eventtable"}}
+{{if .}}
+<table>
+  <tr><th>Time</th><th>Level</th><th>Kind</th><th>Instance</th><th>Torrent</th><th>Message</th></tr>
+  {{range .}}
+  <tr class="lvl-{{.Level}}"><td class="nowrap">{{ts .Time}}</td><td>{{.Level}}</td><td>{{.Kind}}</td><td>{{.Instance}}</td>
+      <td>{{if .Hash}}<code>{{short .Hash}}</code>{{end}}</td><td>{{.Message}}</td></tr>
+  {{end}}
+</table>
+{{else}}<p class="muted">No activity yet.</p>{{end}}
+{{end}}

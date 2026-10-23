@@ -1,0 +1,21 @@
+{{define "content"}}
+<h2>Pending actions</h2>
+<p class="muted">What the next pass would do right now (computed {{ts .Plan.At}}).</p>
+{{if .Plan.Actions}}
+<table>
+  <tr><th>Action</th><th>Source → Target</th><th>Torrent</th><th>Save path</th><th>Reason</th></tr>
+  {{range .Plan.Actions}}
+  <tr><td>{{.Type}}</td><td>{{.Source}} → {{.Target}}</td><td>{{.Name}} <code>{{short .Hash}}</code></td>
+      <td><code>{{.SavePath}}</code></td><td>{{.Reason}}</td></tr>
+  {{end}}
+</table>
+<form method="post" action="{{url "actions/sync"}}">
+  <input type="hidden" name="return" value="/plan">
+  <button type="submit">Run these now</button>
+</form>
+{{else}}<p>Nothing to do. Everything is in sync.</p>{{end}}
+{{if .Plan.Notes}}
+<h3>Notes</h3>
+<ul>{{range .Plan.Notes}}<li>{{.}}</li>{{end}}</ul>
+{{end}}
+{{end}}

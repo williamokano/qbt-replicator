@@ -1,0 +1,15 @@
+{{define "content"}}
+<h2>Configuration</h2>
+<p class="muted">Loaded from <code>{{.Config.Path}}</code>. Secrets are redacted. Edit the file and restart to change it.</p>
+<h3>Rules</h3>
+<table>
+  <tr><th>Name</th><th>Sources</th><th>Targets</th><th>Settle</th><th>Private</th><th>Orphans</th><th>Relocation</th></tr>
+  {{range .Config.Rules}}
+  <tr><td>{{.Name}}</td><td>{{range .Sources}}{{.}} {{end}}</td><td>{{range .Targets}}{{.}} {{end}}</td>
+      <td>{{.SettleDelay}}</td><td>{{if .Filter.IncludePrivate}}<span class="warn">included</span>{{else}}excluded{{end}}</td>
+      <td>{{if .RemoveOrphans}}remove{{else}}keep{{end}}</td><td>{{if .FollowRelocation}}follow{{else}}ignore{{end}}</td></tr>
+  {{end}}
+</table>
+<h3>Full configuration</h3>
+<pre>{{.JSON}}</pre>
+{{end}}

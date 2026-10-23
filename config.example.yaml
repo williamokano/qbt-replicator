@@ -1,0 +1,72 @@
+# qbt-replicator configuration.
+#
+# Location (first match wins): --config/-c flag, $QBTR_CONFIG,
+# /config/config.yaml (Docker default), ./config.yaml.
+#
+# ${VAR} references are expanded from the environment before parsing.
+# Scalar keys can also be overridden with QBTR_<SECTION>_<KEY>, e.g.
+# QBTR_LOG_LEVEL=debug or QBTR_DAEMON_DRY_RUN=true.
+
+log:
+  level: info          # debug | info | warn | error
+  format: text         # text | json
+
+server:
+  listen: ":8080"
+  base_path: "/"       # set e.g. "/replicator" behind a reverse proxy
+  auth:                # basic auth for the UI/API; leave empty to disable
+    username: ""
+    password: ""
+
+daemon:
+  enabled: true        # false (or `serve --no-daemon`) = UI/API only
+  interval: 30s        # reconcile interval (>= 5s)
+  concurrency: 2       # actions executed in parallel
+  dry_run: false       # log what would be done, change nothing
+  replica_tag: qbtr-replica   # marks torrents added by qbt-replicator
+  orphan_grace_ticks: 2       # passes a replica must be orphaned before removal
+
+instances:
+  - name: qbt-1
+    url: http://gluetun-1:8080
+    username: admin
+    password: ${QBT1_PASSWORD}
+    # password_file: /run/secrets/qbt1_password
+    # insecure_skip_verify: false
+    # timeout: 15s
+    # Only needed if the containers mount the shared storage at different paths:
+    # path_mappings:
+    #   - { instance: /downloads, canonical: /data/downloads }
+    # Only for qBittorrent < 4.5 (no /torrents/export): mount its BT_backup dir here.
+    # export_fallback_dir: /bt_backup/qbt-1
+  - name: qbt-2
+    url: http://gluetun-2:8080
+    username: admin
+    password: ${QBT2_PASSWORD}
+  - name: qbt-3
+    url: http://gluetun-3:8080
+    username: admin
+    password: ${QBT3_PASSWORD}
+
+rules:
+  - name: master-to-all
+    sources: [qbt-1]   # ["*"] = any instance (mesh); replicas are never sources
+    targets: ["*"]     # "*" = every instance except the source
+    settle_delay: 2m   # wait after completion (moves from incomplete dir, *arr imports)
+    filter:
+      categories: []   # empty = any category
+      tags: []         # torrent must have at least one of these (empty = any)
+      exclude_tags: [no-replicate]
+      trackers: []     # substring match on the current tracker URL
+      # WARNING: many private trackers forbid seeding one account from several IPs.
+      include_private: false
+      min_size: 0      # e.g. 500MiB, 1GB
+      min_ratio: 0
+    add:
+      category: inherit   # inherit | "" (none) | explicit category name
+      extra_tags: []
+      skip_checking: true # source is verified complete; false = recheck on each target
+      start: true         # false = add replicas stopped
+    remove_orphans: true     # remove replicas when the source torrent is gone (files kept)
+    follow_relocation: true  # re-add replicas when the source moves its files
+    sync_share_limits: false # mirror ratio/seeding-time limits from the source

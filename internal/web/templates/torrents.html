@@ -1,0 +1,45 @@
+{{define "content"}}
+<h2>Torrents</h2>
+<form method="get" class="toolbar">
+  <input type="search" name="search" placeholder="name or hash" value="{{.Filter.Search}}">
+  <input type="text" name="category" placeholder="category" value="{{.Filter.Category}}">
+  <select name="instance">
+    <option value="">any instance</option>
+    {{range .Instances}}<option {{if eq . $.Filter.Instance}}selected{{end}}>{{.}}</option>{{end}}
+  </select>
+  <label><input type="checkbox" name="completed" {{if .Filter.Completed}}checked{{end}}> completed only</label>
+  <label><input type="checkbox" name="fresh"> fresh</label>
+  <button type="submit">Filter</button>
+</form>
+<p class="muted">{{len .Rows}} torrent(s). "source" = downloaded there; "replica" = added by qbt-replicator.</p>
+<table class="matrix">
+  <tr><th>Name</th><th>Size</th>{{range .Instances}}<th>{{.}}</th>{{end}}<th>Up</th><th>Actions</th></tr>
+  {{range $row := .Rows}}
+  <tr>
+    <td>{{$row.Name}}<br><code class="muted small">{{$row.Hash}}</code>{{if $row.Category}} <span class="badge">{{$row.Category}}</span>{{end}}</td>
+    <td class="nowrap">{{bytes $row.Size}}</td>
+    {{range $.Instances}}{{$c := index $row.Cells .}}
+      <td class="cell {{if not $c.Present}}absent{{else if $c.Replica}}replica{{else}}source{{end}}" title="{{$c.State}} {{$c.SavePath}}">
+        {{cell $c}}{{if $c.Present}}<br><span class="muted small">{{$c.State}} · r {{ratio $c.Ratio}}</span>{{end}}
+      </td>
+    {{end}}
+    <td class="nowrap">{{bytes $row.TotalUp}}/s</td>
+    <td class="actions">
+      {{if $row.Complete}}
+      <form method="post" action="{{url "actions/replicate"}}">
+        <input type="hidden" name="hash" value="{{$row.Hash}}">
+        <input type="hidden" name="return" value="{{$.Return}}">
+        <label class="small"><input type="checkbox" name="force"> force</label>
+        <button type="submit">Replicate</button>
+      </form>
+      {{end}}
+      <form method="post" action="{{url "actions/unreplicate"}}" onsubmit="return confirm('Remove all replicas of this torrent? Files are kept.')">
+        <input type="hidden" name="hash" value="{{$row.Hash}}">
+        <input type="hidden" name="return" value="{{$.Return}}">
+        <button type="submit" class="secondary">Unreplicate</button>
+      </form>
+    </td>
+  </tr>
+  {{end}}
+</table>
+{{end}}

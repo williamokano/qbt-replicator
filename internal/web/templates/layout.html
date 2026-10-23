@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+{{if .Refresh}}<meta http-equiv="refresh" content="{{.Refresh}}">{{end}}
+<title>qbt-replicator · {{.Page}}</title>
+<link rel="stylesheet" href="{{url "static/style.css"}}">
+</head>
+<body>
+<header>
+  <strong>qbt-replicator</strong>
+  <nav>
+    <a href="{{url "/"}}" {{if eq .Page "dashboard"}}class="active"{{end}}>Dashboard</a>
+    <a href="{{url "torrents"}}" {{if eq .Page "torrents"}}class="active"{{end}}>Torrents</a>
+    <a href="{{url "plan"}}" {{if eq .Page "plan"}}class="active"{{end}}>Plan</a>
+    <a href="{{url "events"}}" {{if eq .Page "events"}}class="active"{{end}}>Activity</a>
+    <a href="{{url "config"}}" {{if eq .Page "config"}}class="active"{{end}}>Config</a>
+  </nav>
+  <span class="muted">{{.Version}}{{if .DryRun}} · <span class="warn">DRY RUN</span>{{end}}</span>
+</header>
+<main>
+{{if .Flash}}<p class="flash ok">{{.Flash}}</p>{{end}}
+{{if .FlashErr}}<p class="flash err">{{.FlashErr}}</p>{{end}}
+{{template "content" .}}
+</main>
+<footer class="muted">
+  {{if .Refresh}}Auto-refresh every {{.Refresh}}s · <a href="?">stop</a>{{else}}<a href="?refresh=15">auto-refresh</a>{{end}}
+  · <a href="{{url "metrics"}}">metrics</a> · <a href="{{url "api/v1/status"}}">api</a>
+</footer>
+</body>
+</html>

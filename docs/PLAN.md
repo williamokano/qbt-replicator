@@ -214,3 +214,15 @@ Multi-stage `Dockerfile`:
 
 ## Future ideas (not in first implementation)
 Webhook notifications (ntfy/Discord) on errors; per-target capacity limits (max replicas / skip targets with low free disk via `sync/maindata` `free_space_on_disk`); "upload-aware" placement (replicate only torrents with active leechers / to least-loaded tunnel); hot config reload (viper `WatchConfig`); `sync/maindata` incremental polling for large libraries; CLI `--remote` mode talking to a running daemon's JSON API.
+
+---
+
+## Implementation notes (deviations found while building/testing)
+
+Validated end-to-end against real qBittorrent **5.3.0 (WebAPI 2.16.2)** and **4.6.7 (WebAPI 2.9.3)** containers sharing a volume.
+
+- **qBittorrent 5.x status codes:** login returns `204` (success) / `401` (bad credentials); duplicate `torrents/add` returns `409`; `torrents/add` returns a JSON summary (`success_count`/`failure_count`). The client handles both dialects and the fake server emulates them.
+- **Stopped + `skip_checking` shows 0% progress** on real qBittorrent (seed mode is only applied once the torrent runs). The add flow therefore verifies completeness *after* start (`skip_checking: true`, 30s window, stop on failure) or rechecks *while stopped* (`skip_checking: false`).
+- **Replicas get a 1 B/s download limit (`dlLimit`).** A side experiment showed that a replica started before the rename sync immediately re-downloaded the missing file from the source over LAN peer discovery, into the shared directory. Renames/priorities are synced before start, and the download cap is a second safety net.
+- **Planner memory is persisted** to `state.json` next to the config (`daemon.state_file`, `none` disables). Without it, one-shot `sync` runs (cron) could never reach the orphan grace count.
+- Renames are mirrored with per-file `renameFile` (which also covers folder renames).

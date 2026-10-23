@@ -1,0 +1,278 @@
+package replicator_test
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/williamokano/qbt-replicator/internal/config"
+	"github.com/williamokano/qbt-replicator/internal/events"
+	"github.com/williamokano/qbt-replicator/internal/qbt"
+	"github.com/williamokano/qbt-replicator/internal/qbt/fake"
+	"github.com/williamokano/qbt-replicator/internal/replicator"
+)
+
+type cluster struct {
+	a, b, c *fake.Server
+	eng     *replicator.Engine
+}
+
+func newCluster(t *testing.T, ruleExtra string) *cluster {
+	t.Helper()
+	cl := &cluster{a: fake.New(true, "u", "p"), b: fake.New(false, "u", "p"), c: fake.New(true, "u", "p")}
+	t.Cleanup(func() { cl.a.Close(); cl.b.Close(); cl.c.Close() })
+	doc := fmt.Sprintf(`
+instances:
+  - {name: a, url: %q, username: u, password: p}
+  - {name: b, url: %q, username: u, password: p}
+  - {name: c, url: %q, username: u, password: p}
+rules:
+  - name: main
+    sources: [a]
+%s`, cl.a.URL, cl.b.URL, cl.c.URL, ruleExtra)
+	cfg, err := config.Parse([]byte(doc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng, err := replicator.NewEngine(cfg, events.New(100, slog.New(slog.NewTextHandler(io.Discard, nil))), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng.Executor().PollInterval = 5 * time.Millisecond
+	eng.Executor().AppearTimeout = time.Second
+	eng.Executor().CheckTimeout = time.Second
+	eng.Executor().VerifyTimeout = 200 * time.Millisecond
+	cl.eng = eng
+	return cl
+}
+
+func seedShow(s *fake.Server) {
+	i0, i1, i2 := 0, 1, 2
+	s.Seed(qbt.Torrent{Hash: "h1", Name: "Show.S01", SavePath: "/data/tv", Category: "tv", Size: 300}, []qbt.File{
+		{Index: &i0, Name: "Show.S01/e01.mkv", Size: 100, Progress: 1, Priority: 1},
+		{Index: &i1, Name: "Show.S01/e02 renamed.mkv", Size: 100, Progress: 1, Priority: 1},
+		{Index: &i2, Name: "Show.S01/sample.mkv", Size: 100, Progress: 0, Priority: 0},
+	}, false)
+	// The original .torrent had a different name for file 1 (renamed on the source).
+	s.Update("h1", func(e *fake.Entry) {
+		e.AddParams = map[string]string{"_orig": `[{"index":0,"name":"Show.S01/e01.mkv","size":100},{"index":1,"name":"Show.S01/e02.mkv","size":100},{"index":2,"name":"Show.S01/sample.mkv","size":100}]`}
+	})
+}
+
+func failures(rep *replicator.RunReport) string {
+	var out []string
+	for _, r := range rep.Results {
+		if r.Error != "" {
+			out = append(out, r.Action.String()+": "+r.Error)
+		}
+	}
+	return strings.Join(out, "; ")
+}
+
+func TestEndToEndReplication(t *testing.T) {
+	cl := newCluster(t, "    settle_delay: 0s\n")
+	seedShow(cl.a)
+	ctx := context.Background()
+
+	rep := cl.eng.RunOnce(ctx, false)
+	if rep.Failed > 0 || len(rep.Results) != 2 {
+		t.Fatalf("results=%d failures=%s", len(rep.Results), failures(rep))
+	}
+	for _, srv := range []*fake.Server{cl.b, cl.c} {
+		e, ok := srv.Get("h1")
+		if !ok {
+			t.Fatal("replica missing")
+		}
+		tor := e.Torrent
+		if !tor.HasTag("qbtr-replica") || tor.SavePath != "/data/tv" || tor.Category != "tv" || tor.State != qbt.StateStalledUP {
+			t.Errorf("replica wrong: %+v", tor)
+		}
+		if e.Files[1].Name != "Show.S01/e02 renamed.mkv" {
+			t.Errorf("rename not mirrored: %+v", e.Files)
+		}
+		if e.Files[2].Priority != 0 || e.Files[0].Priority != 1 {
+			t.Errorf("priorities not mirrored: %+v", e.Files)
+		}
+	}
+	// Idempotent second pass.
+	if rep := cl.eng.RunOnce(ctx, false); len(rep.Results) != 0 {
+		t.Errorf("second pass not idempotent: %+v", rep.Plan.Actions)
+	}
+
+	// Source removes the torrent (e.g. Sonarr). Two passes later replicas go, files kept.
+	cl.a.Delete("h1")
+	cl.eng.RunOnce(ctx, false)
+	if _, ok := cl.b.Get("h1"); !ok {
+		t.Fatal("replica removed before grace period")
+	}
+	rep = cl.eng.RunOnce(ctx, false)
+	if rep.Failed > 0 {
+		t.Fatal(failures(rep))
+	}
+	if _, ok := cl.b.Get("h1"); ok {
+		t.Error("orphan replica not removed on b")
+	}
+	if _, ok := cl.c.Get("h1"); ok {
+		t.Error("orphan replica not removed on c")
+	}
+	if cl.b.DeletedFiles+cl.c.DeletedFiles != 0 {
+		t.Fatal("files were deleted")
+	}
+}
+
+func TestNoOrphanRemovalWhileSourceDown(t *testing.T) {
+	cl := newCluster(t, "    settle_delay: 0s\n")
+	seedShow(cl.a)
+	ctx := context.Background()
+	cl.eng.RunOnce(ctx, false)
+	cl.a.Down = true
+	for range 3 {
+		cl.eng.RunOnce(ctx, false)
+	}
+	if _, ok := cl.b.Get("h1"); !ok {
+		t.Fatal("replica removed while source was unreachable")
+	}
+}
+
+func TestRelocationReadd(t *testing.T) {
+	cl := newCluster(t, "    settle_delay: 0s\n")
+	seedShow(cl.a)
+	ctx := context.Background()
+	cl.eng.RunOnce(ctx, false)
+	cl.a.Update("h1", func(e *fake.Entry) { e.Torrent.SavePath = "/data/archive" })
+	rep := cl.eng.RunOnce(ctx, false)
+	if rep.Failed > 0 {
+		t.Fatal(failures(rep))
+	}
+	e, _ := cl.c.Get("h1")
+	if e.Torrent.SavePath != "/data/archive" {
+		t.Errorf("replica not relocated: %s", e.Torrent.SavePath)
+	}
+}
+
+func TestRecheckWithoutDataLeavesReplicaStopped(t *testing.T) {
+	cl := newCluster(t, "    settle_delay: 0s\n    add: {skip_checking: false}\n")
+	seedShow(cl.a)
+	cl.b.HasData = func(string) bool { return false }
+	rep := cl.eng.RunOnce(context.Background(), false)
+	if rep.Failed != 1 {
+		t.Fatalf("expected exactly one failure, got %d: %s", rep.Failed, failures(rep))
+	}
+	e, _ := cl.b.Get("h1")
+	if !qbt.IsStoppedState(e.Torrent.State) {
+		t.Errorf("replica without data must stay stopped, state=%s", e.Torrent.State)
+	}
+	if e, _ := cl.c.Get("h1"); e.Torrent.State != qbt.StateStalledUP {
+		t.Errorf("healthy target not seeding: %s", e.Torrent.State)
+	}
+}
+
+func TestDryRunChangesNothing(t *testing.T) {
+	cl := newCluster(t, "    settle_delay: 0s\n")
+	seedShow(cl.a)
+	rep := cl.eng.RunOnce(context.Background(), true)
+	if len(rep.Results) != 2 || !rep.Results[0].DryRun {
+		t.Fatalf("dry run results: %+v", rep.Results)
+	}
+	if len(cl.b.Hashes())+len(cl.c.Hashes()) != 0 {
+		t.Error("dry run modified targets")
+	}
+}
+
+func TestSettleDelay(t *testing.T) {
+	cl := newCluster(t, "")
+	seedShow(cl.a)
+	cl.a.Update("h1", func(e *fake.Entry) { e.Torrent.CompletionOn = time.Now().Unix() })
+	if rep := cl.eng.RunOnce(context.Background(), false); len(rep.Results) != 0 {
+		t.Errorf("replicated within settle delay: %+v", rep.Plan.Actions)
+	}
+}
+
+func TestManualReplicateAndUnreplicate(t *testing.T) {
+	cl := newCluster(t, "    filter: {categories: [movies]}\n")
+	seedShow(cl.a)
+	ctx := context.Background()
+	if _, err := cl.eng.Replicate(ctx, replicator.ReplicateRequest{Hash: "h1"}); err == nil {
+		t.Fatal("expected filter rejection without force")
+	}
+	res, err := cl.eng.Replicate(ctx, replicator.ReplicateRequest{Hash: "h1", To: []string{"b"}, Force: true})
+	if err != nil || len(res) != 1 || res[0].Error != "" {
+		t.Fatalf("manual replicate: %v %+v", err, res)
+	}
+	if _, ok := cl.b.Get("h1"); !ok {
+		t.Fatal("not replicated")
+	}
+	if _, err := cl.eng.Unreplicate(ctx, "h1", []string{"a"}, false); !errors.Is(err, replicator.ErrNotReplica) {
+		t.Fatalf("unreplicate of source must be refused, got %v", err)
+	}
+	res, err = cl.eng.Unreplicate(ctx, "h1", nil, false)
+	if err != nil || len(res) != 1 {
+		t.Fatalf("unreplicate: %v %+v", err, res)
+	}
+	if _, ok := cl.b.Get("h1"); ok {
+		t.Error("replica still present")
+	}
+	if _, ok := cl.a.Get("h1"); !ok {
+		t.Error("source removed")
+	}
+}
+
+func TestPrivateSkippedByDefault(t *testing.T) {
+	cl := newCluster(t, "    settle_delay: 0s\n")
+	cl.a.Seed(qbt.Torrent{Hash: "p1", Name: "priv", SavePath: "/d"}, nil, true)
+	if rep := cl.eng.RunOnce(context.Background(), false); len(rep.Results) != 0 {
+		t.Errorf("private torrent replicated: %+v", rep.Plan.Actions)
+	}
+}
+
+func TestSkipCheckingWithoutDataIsStoppedAfterStart(t *testing.T) {
+	cl := newCluster(t, "    settle_delay: 0s\n")
+	seedShow(cl.a)
+	cl.c.HasData = func(string) bool { return false }
+	rep := cl.eng.RunOnce(context.Background(), false)
+	if rep.Failed != 1 {
+		t.Fatalf("expected one failure, got %d: %s", rep.Failed, failures(rep))
+	}
+	e, _ := cl.c.Get("h1")
+	if !qbt.IsStoppedState(e.Torrent.State) {
+		t.Errorf("replica must be stopped, state=%s", e.Torrent.State)
+	}
+	if e.AddParams["dlLimit"] != "1" {
+		t.Errorf("replica download limit not applied: %v", e.AddParams)
+	}
+	if e, _ := cl.b.Get("h1"); e.Torrent.State != qbt.StateStalledUP {
+		t.Errorf("healthy target not seeding: %s", e.Torrent.State)
+	}
+}
+
+func TestStatePersistsAcrossEngines(t *testing.T) {
+	cl := newCluster(t, "    settle_delay: 0s\n")
+	seedShow(cl.a)
+	ctx := context.Background()
+	dir := t.TempDir()
+	cfg := *cl.eng.Config()
+	cfg.Path = dir + "/config.yaml"
+	mk := func() *replicator.Engine {
+		eng, err := replicator.NewEngine(&cfg, events.New(10, slog.New(slog.NewTextHandler(io.Discard, nil))), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		eng.Executor().PollInterval = 5 * time.Millisecond
+		return eng
+	}
+	mk().RunOnce(ctx, false)
+	cl.a.Delete("h1")
+	mk().RunOnce(ctx, false) // first confirmation, persisted
+	if _, ok := cl.b.Get("h1"); !ok {
+		t.Fatal("removed too early")
+	}
+	mk().RunOnce(ctx, false) // second confirmation from a fresh process
+	if _, ok := cl.b.Get("h1"); ok {
+		t.Fatal("orphan grace did not survive restart")
+	}
+}
