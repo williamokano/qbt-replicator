@@ -15,12 +15,15 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
         -X github.com/williamokano/qbt-replicator/internal/version.Commit=${COMMIT} \
         -X github.com/williamokano/qbt-replicator/internal/version.Date=${DATE}" \
       -o /out/qbt-replicator ./cmd/qbt-replicator
+# Pre-create /config owned by nonroot so fresh named volumes are writable (state.json).
+RUN mkdir -p /out/config
 
 FROM gcr.io/distroless/static-debian12:nonroot
 LABEL org.opencontainers.image.title="qbt-replicator" \
       org.opencontainers.image.source="https://github.com/williamokano/qbt-replicator" \
       org.opencontainers.image.description="Replicate completed torrents across qBittorrent instances sharing storage"
 COPY --from=build /out/qbt-replicator /qbt-replicator
+COPY --from=build --chown=65532:65532 /out/config /config
 ENV QBTR_CONFIG=/config/config.yaml
 VOLUME ["/config"]
 EXPOSE 8080

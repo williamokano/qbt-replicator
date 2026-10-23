@@ -187,3 +187,18 @@ func TestParseSize(t *testing.T) {
 		t.Error("negative accepted")
 	}
 }
+
+func TestEnvExpansionIsYAMLSafe(t *testing.T) {
+	t.Setenv("TEST_QBT_PW", `we"ird # pa$$:w0rd`)
+	t.Setenv("TEST_INTERVAL", "45s")
+	cfg, err := Parse([]byte("daemon:\n  interval: ${TEST_INTERVAL}\n" + minimal))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Instances[0].Password; got != `we"ird # pa$$:w0rd` {
+		t.Errorf("password mangled: %q", got)
+	}
+	if cfg.Daemon.Interval != 45*time.Second {
+		t.Errorf("interval: %v", cfg.Daemon.Interval)
+	}
+}

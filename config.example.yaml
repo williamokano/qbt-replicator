@@ -3,7 +3,7 @@
 # Location (first match wins): --config/-c flag, $QBTR_CONFIG,
 # /config/config.yaml (Docker default), ./config.yaml.
 #
-# ${VAR} references are expanded from the environment before parsing.
+# ${VAR} references in values are expanded from the environment.
 # Scalar keys can also be overridden with QBTR_<SECTION>_<KEY>, e.g.
 # QBTR_LOG_LEVEL=debug or QBTR_DAEMON_DRY_RUN=true.
 

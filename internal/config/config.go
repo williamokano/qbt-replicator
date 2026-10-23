@@ -199,8 +199,11 @@ func Parse(raw []byte) (*Config, error) {
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
 
-	expanded := os.ExpandEnv(string(raw))
-	if err := v.ReadConfig(bytes.NewBufferString(expanded)); err != nil {
+	expanded, err := expandEnv(raw)
+	if err != nil {
+		return nil, fmt.Errorf("parsing yaml: %w", err)
+	}
+	if err := v.ReadConfig(bytes.NewReader(expanded)); err != nil {
 		return nil, fmt.Errorf("parsing yaml: %w", err)
 	}
 
