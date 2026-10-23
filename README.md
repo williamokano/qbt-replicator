@@ -61,6 +61,26 @@ docker run -d --name qbt-replicator \
 Open http://localhost:8085. See [`docker-compose.example.yml`](docker-compose.example.yml)
 for a full stack with three gluetun tunnels.
 
+### Portainer
+
+[`docker-compose.portainer.yml`](docker-compose.portainer.yml) is a self-contained stack:
+the whole `config.yaml` is embedded as a Compose `config`, so nothing has to exist on the host.
+
+1. **Stacks → Add stack**, paste the file into the web editor (or use *Repository* pointing
+   at this repo with compose path `docker-compose.portainer.yml`).
+2. Under **Environment variables** set `QBT1_URL`, `QBT2_URL`, `QBT3_URL`, `QBT1_PASSWORD`,
+   `QBT2_PASSWORD`, `QBT3_PASSWORD`, and optionally `QBT_USERNAME` (default `admin`),
+   `QBTR_PORT` (default `8085`), `QBTR_UI_USER`/`QBTR_UI_PASSWORD`, `QBTR_NETWORK`.
+3. `QBTR_NETWORK` must be an existing Docker network that your qBittorrent/gluetun containers
+   are on (default `qbt_default`), so URLs like `http://gluetun-1:8080` resolve. To reach them
+   via the NAS IP instead, drop `external: true`/`name:` from the `networks` section.
+4. Deploy. Edit the embedded rules in the stack editor and *Update the stack* to change them.
+
+Passwords are passed as container environment variables and expanded by qbt-replicator, so
+any characters (quotes, `#`, `$`, `:`) are safe. Needs a Portainer whose Compose supports
+inline `configs.content` (Compose ≥ 2.23); on older versions bind-mount a config file instead
+(see the comment at the top of the file).
+
 The container runs as the distroless `nonroot` user (uid/gid 65532). `/config` must be
 **writable** by that user if you want the planner state (`state.json`) to survive
 restarts; otherwise it just logs a warning.
@@ -85,7 +105,8 @@ First match wins:
 3. `/config/config.yaml` (the Docker default)
 4. `./config.yaml`
 
-Inside the YAML, `${VAR}` is expanded from the environment, and instances can use
+Inside the YAML, `${VAR}` in values is expanded from the environment (after parsing, so
+special characters in the variable are safe), and instances can use
 `password_file:` (Docker secrets). Scalar settings can be overridden with
 `QBTR_<SECTION>_<KEY>` environment variables, e.g. `QBTR_LOG_LEVEL=debug`,
 `QBTR_DAEMON_DRY_RUN=true`, `QBTR_SERVER_LISTEN=:9090`.
