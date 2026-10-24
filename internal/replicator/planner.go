@@ -21,6 +21,9 @@ const (
 	ActionRecheck    ActionType = "recheck"
 	ActionStop       ActionType = "stop"
 	ActionSyncLimits ActionType = "sync_limits"
+	// ActionExclude / ActionInclude add or remove daemon.exclude_tag on a source torrent.
+	ActionExclude ActionType = "exclude"
+	ActionInclude ActionType = "include"
 )
 
 // Action is one planned operation on a target instance.
@@ -93,8 +96,20 @@ type Plan struct {
 	Actions []Action  `json:"actions"`
 	// Notes explain decisions that were deliberately not taken.
 	Notes []string `json:"notes"`
+	// Skipped lists completed source torrents that are not being replicated, and why.
+	Skipped []Skip `json:"skipped"`
 	// Memory is the updated planner memory (commit it only if the plan is executed).
 	Memory *Memory `json:"-"`
+}
+
+// Skip explains why a completed source torrent is not replicated to a target.
+type Skip struct {
+	Hash   string `json:"hash"`
+	Name   string `json:"name"`
+	Source string `json:"source"`
+	Target string `json:"target,omitempty"` // empty: applies to every target of the rule
+	Rule   string `json:"rule"`
+	Reason string `json:"reason"`
 }
 
 // Compute is the pure planning function: config + snapshot + memory -> actions.
@@ -136,15 +151,27 @@ func Compute(cfg *config.Config, snap *Snapshot, mem *Memory, now time.Time) *Pl
 			srcCfg, _ := cfg.Instance(srcName)
 			for _, h := range sortedKeys(src.Torrents) {
 				t := src.Torrents[h]
-				if ok, _ := Eligible(cfg, rule, src, t, now); !ok {
+				targets := cfg.Expand(rule.Targets, srcName)
+				skip := func(target, reason string) {
+					p.Skipped = append(p.Skipped, Skip{Hash: h, Name: t.Name, Source: srcName, Target: target, Rule: rule.Name, Reason: reason})
+				}
+				if ok, why := Eligible(cfg, rule, src, t, now); !ok {
+					// Only explain completed torrents that some target still lacks.
+					if t.Progress >= 1 && missingOn(snap, targets, h) {
+						skip("", why)
+					}
 					continue
 				}
-				for _, tgtName := range cfg.Expand(rule.Targets, srcName) {
+				for _, tgtName := range targets {
 					tgt := snap.Instances[tgtName]
 					if tgt == nil || !tgt.Healthy {
+						skip(tgtName, "target instance is unreachable")
 						continue
 					}
-					if _, present := tgt.Torrents[h]; present {
+					if existing, present := tgt.Torrents[h]; present {
+						if !existing.HasTag(tag) {
+							skip(tgtName, "already on "+tgtName+" as a normal torrent (added outside qbt-replicator)")
+						}
 						continue
 					}
 					tgtCfg, _ := cfg.Instance(tgtName)
@@ -264,54 +291,74 @@ func addAction(typ ActionType, cfg *config.Config, rule config.RuleConfig, srcCf
 	return a
 }
 
+// missingOn reports whether any of the targets lacks the torrent.
+func missingOn(snap *Snapshot, targets []string, hash string) bool {
+	for _, n := range targets {
+		st := snap.Instances[n]
+		if st == nil || !st.Healthy {
+			return true
+		}
+		if _, ok := st.Torrents[hash]; !ok {
+			return true
+		}
+	}
+	return false
+}
+
 // Eligible reports whether torrent t on src should be replicated by rule, and why not.
 func Eligible(cfg *config.Config, rule config.RuleConfig, src *InstanceState, t qbt.Torrent, now time.Time) (bool, string) {
 	if t.HasTag(cfg.Daemon.ReplicaTag) {
-		return false, "is a replica"
+		return false, "is itself a replica (tagged " + cfg.Daemon.ReplicaTag + "); replicas are never sources"
+	}
+	if cfg.Daemon.ExcludeTag != "" && t.HasTag(cfg.Daemon.ExcludeTag) {
+		return false, "excluded (tagged " + cfg.Daemon.ExcludeTag + "); use Include again to replicate it"
 	}
 	if t.Progress < 1 || !qbt.IsSeedingState(t.State) {
-		return false, "not completed/settled (state " + t.State + ")"
+		return false, "not completed and seeding yet (state " + t.State + ")"
 	}
 	done := t.CompletedAt()
 	if done.IsZero() && t.AddedOn > 0 {
 		done = time.Unix(t.AddedOn, 0)
 	}
 	if !done.IsZero() && now.Sub(done) < rule.SettleDelay {
-		return false, "within settle delay"
+		return false, fmt.Sprintf("completed %s ago, waiting for settle_delay %s", now.Sub(done).Round(time.Second), rule.SettleDelay)
 	}
 	f := rule.Filter
 	if len(f.Categories) > 0 && !slices.Contains(f.Categories, t.Category) {
-		return false, "category not selected"
+		return false, fmt.Sprintf("category %q is not in filter.categories", t.Category)
 	}
 	tags := t.Tags()
 	if len(f.Tags) > 0 && !slices.ContainsFunc(f.Tags, func(x string) bool { return slices.Contains(tags, x) }) {
-		return false, "tag not selected"
+		return false, "has none of filter.tags"
 	}
 	if slices.ContainsFunc(f.ExcludeTags, func(x string) bool { return slices.Contains(tags, x) }) {
-		return false, "excluded tag"
+		return false, "has a tag listed in filter.exclude_tags"
 	}
 	if len(f.Trackers) > 0 && !slices.ContainsFunc(f.Trackers, func(x string) bool {
 		return x != "" && strings.Contains(strings.ToLower(t.Tracker), strings.ToLower(x))
 	}) {
-		return false, "tracker not selected"
+		return false, "tracker does not match filter.trackers"
 	}
 	size := t.TotalSize
 	if size == 0 {
 		size = t.Size
 	}
 	if f.MinSizeBytes > 0 && size < f.MinSizeBytes {
-		return false, "smaller than min_size"
+		return false, "smaller than filter.min_size"
 	}
 	if f.MinRatio > 0 && t.Ratio < f.MinRatio {
-		return false, "ratio below min_ratio"
+		return false, "ratio below filter.min_ratio"
 	}
 	if !f.IncludePrivate {
 		priv, known := src.Private[t.Hash]
 		if !known && t.Private != nil {
 			priv, known = *t.Private, true
 		}
-		if !known || priv {
-			return false, "private torrent (include_private is false)"
+		switch {
+		case !known:
+			return false, "private flag unknown, treated as private (filter.include_private is false)"
+		case priv:
+			return false, "private torrent: set filter.include_private: true to replicate (check your tracker allows several IPs)"
 		}
 	}
 	return true, ""

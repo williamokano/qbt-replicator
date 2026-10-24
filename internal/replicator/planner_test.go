@@ -226,3 +226,46 @@ func TestAddActionDetails(t *testing.T) {
 		t.Errorf("action: %+v", a)
 	}
 }
+
+func TestPlannerExplainsSkips(t *testing.T) {
+	cfg := testConfig(t, func(c *config.Config) { c.Rules[0].Sources = []string{"b"}; c.Rules[0].Targets = []string{"c"} })
+	priv := done("p")
+	fresh := done("f")
+	fresh.CompletionOn = now.Add(-10 * time.Second).Unix()
+	manual := done("m")
+	rep := replica("r")
+	downloading := done("d")
+	downloading.Progress, downloading.State = 0.4, "downloading"
+	snap := snapshot(map[string]inst{
+		"b": {torrents: []qbt.Torrent{priv, fresh, manual, rep, downloading}, private: map[string]bool{"p": true}},
+		"c": {torrents: []qbt.Torrent{manual}},
+	})
+	p := Compute(cfg, snap, nil, now)
+	if len(p.Actions) != 0 {
+		t.Fatalf("unexpected actions: %s", actionsStr(p))
+	}
+	reasons := map[string]string{}
+	for _, s := range p.Skipped {
+		reasons[s.Hash] = s.Reason
+	}
+	for hash, want := range map[string]string{
+		"p": "private torrent",
+		"f": "waiting for settle_delay",
+		"m": "already on c as a normal torrent",
+		"r": "is itself a replica",
+	} {
+		if !strings.Contains(reasons[hash], want) {
+			t.Errorf("%s: reason %q, want it to contain %q", hash, reasons[hash], want)
+		}
+	}
+	if _, ok := reasons["d"]; ok {
+		t.Error("incomplete torrents should not be listed as skipped")
+	}
+
+	// Unreachable target is explained per target.
+	snap = snapshot(map[string]inst{"b": {torrents: []qbt.Torrent{done("x")}}, "c": {down: true}})
+	p = Compute(cfg, snap, nil, now)
+	if len(p.Skipped) != 1 || p.Skipped[0].Target != "c" || !strings.Contains(p.Skipped[0].Reason, "unreachable") {
+		t.Errorf("skipped: %+v", p.Skipped)
+	}
+}

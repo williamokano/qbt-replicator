@@ -127,8 +127,26 @@ func (s *Server) actionUnreplicate(w http.ResponseWriter, r *http.Request) {
 		s.redirect(w, r, returnTo(r), "", errMissingHash)
 		return
 	}
-	res, err := s.svc.Unreplicate(r.Context(), hash, splitList(r.Form["on"]), false)
-	s.redirect(w, r, returnTo(r), summarize("unreplicate", res), firstErr(res, err))
+	exclude := r.FormValue("exclude") == "true"
+	res, err := s.svc.Unreplicate(r.Context(), replicator.UnreplicateRequest{
+		Hash: hash, On: splitList(r.Form["on"]), Exclude: exclude,
+	})
+	what := "unreplicate"
+	if exclude {
+		what = "remove & exclude"
+	}
+	s.redirect(w, r, returnTo(r), summarize(what, res), firstErr(res, err))
+}
+
+func (s *Server) actionInclude(w http.ResponseWriter, r *http.Request) {
+	_ = r.ParseForm()
+	hash := strings.ToLower(strings.TrimSpace(r.FormValue("hash")))
+	if hash == "" {
+		s.redirect(w, r, returnTo(r), "", errMissingHash)
+		return
+	}
+	res, err := s.svc.Include(r.Context(), hash, false)
+	s.redirect(w, r, returnTo(r), summarize("include", res), firstErr(res, err))
 }
 
 func summarize(what string, res []replicator.Result) string {
@@ -254,9 +272,10 @@ func (s *Server) apiReplicate(w http.ResponseWriter, r *http.Request) {
 }
 
 type unreplicateBody struct {
-	Hash   string   `json:"hash"`
-	On     []string `json:"on"`
-	DryRun bool     `json:"dry_run"`
+	Hash    string   `json:"hash"`
+	On      []string `json:"on"`
+	Exclude bool     `json:"exclude"`
+	DryRun  bool     `json:"dry_run"`
 }
 
 func (s *Server) apiUnreplicate(w http.ResponseWriter, r *http.Request) {
@@ -268,7 +287,31 @@ func (s *Server) apiUnreplicate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	res, err := s.svc.Unreplicate(r.Context(), strings.ToLower(b.Hash), b.On, b.DryRun)
+	res, err := s.svc.Unreplicate(r.Context(), replicator.UnreplicateRequest{
+		Hash: strings.ToLower(b.Hash), On: b.On, Exclude: b.Exclude, DryRun: b.DryRun,
+	})
+	if err != nil {
+		writeErr(w, http.StatusUnprocessableEntity, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+type includeBody struct {
+	Hash   string `json:"hash"`
+	DryRun bool   `json:"dry_run"`
+}
+
+func (s *Server) apiInclude(w http.ResponseWriter, r *http.Request) {
+	var b includeBody
+	if err := decodeOptional(r, &b); err != nil || b.Hash == "" {
+		if err == nil {
+			err = errMissingHash
+		}
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	res, err := s.svc.Include(r.Context(), strings.ToLower(b.Hash), b.DryRun)
 	if err != nil {
 		writeErr(w, http.StatusUnprocessableEntity, err)
 		return

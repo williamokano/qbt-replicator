@@ -21,6 +21,14 @@
     {{range $.Instances}}{{$c := index $row.Cells .}}
       <td class="cell {{if not $c.Present}}absent{{else if $c.Replica}}replica{{else}}source{{end}}" title="{{$c.State}} {{$c.SavePath}}">
         {{cell $c}}{{if $c.Present}}<br><span class="muted small">{{$c.State}} · r {{ratio $c.Ratio}}</span>{{end}}
+        {{if $c.Replica}}
+        <form method="post" action="{{url "actions/unreplicate"}}" class="inline" onsubmit="return confirm('Remove this replica from {{.}}? Files are kept.')">
+          <input type="hidden" name="hash" value="{{$row.Hash}}">
+          <input type="hidden" name="on" value="{{.}}">
+          <input type="hidden" name="return" value="{{$.Return}}">
+          <button type="submit" class="link small" title="Remove the replica from {{.}} (files kept)">remove</button>
+        </form>
+        {{end}}
       </td>
     {{end}}
     <td class="nowrap">{{bytes $row.TotalUp}}/s</td>
@@ -30,14 +38,29 @@
         <input type="hidden" name="hash" value="{{$row.Hash}}">
         <input type="hidden" name="return" value="{{$.Return}}">
         <label class="small"><input type="checkbox" name="force"> force</label>
-        <button type="submit">Replicate</button>
+        <button type="submit" title="Replicate to the targets of the rules for its source instance">Replicate</button>
       </form>
       {{end}}
-      <form method="post" action="{{url "actions/unreplicate"}}" onsubmit="return confirm('Remove all replicas of this torrent? Files are kept.')">
+      <form method="post" action="{{url "actions/unreplicate"}}" onsubmit="return confirm('Remove ALL replicas of this torrent? Files are kept. Rules may add them again.')">
         <input type="hidden" name="hash" value="{{$row.Hash}}">
         <input type="hidden" name="return" value="{{$.Return}}">
-        <button type="submit" class="secondary">Unreplicate</button>
+        <button type="submit" class="secondary" title="Remove every replica (files kept); rules may re-add it">Unreplicate all</button>
       </form>
+      {{if $row.Excluded}}
+      <span class="badge warn" title="Tagged with the exclude tag: no rule replicates it">excluded</span>
+      <form method="post" action="{{url "actions/include"}}">
+        <input type="hidden" name="hash" value="{{$row.Hash}}">
+        <input type="hidden" name="return" value="{{$.Return}}">
+        <button type="submit" class="secondary" title="Remove the exclude tag so rules replicate it again">Include again</button>
+      </form>
+      {{else}}
+      <form method="post" action="{{url "actions/unreplicate"}}" onsubmit="return confirm('Remove all replicas AND exclude this torrent from replication until you include it again? Files are kept.')">
+        <input type="hidden" name="hash" value="{{$row.Hash}}">
+        <input type="hidden" name="exclude" value="true">
+        <input type="hidden" name="return" value="{{$.Return}}">
+        <button type="submit" class="secondary" title="Tag the source so no rule replicates it, then remove every replica (files kept)">Remove &amp; exclude</button>
+      </form>
+      {{end}}
     </td>
   </tr>
   {{end}}

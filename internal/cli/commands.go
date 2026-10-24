@@ -251,7 +251,7 @@ func newReplicateCmd(g *globals) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&req.From, "from", "", "source instance (default: first instance owning the torrent)")
-	cmd.Flags().StringSliceVar(&req.To, "to", nil, "target instances (default: all others)")
+	cmd.Flags().StringSliceVar(&req.To, "to", nil, "target instances (default: the targets of the rules for the source)")
 	cmd.Flags().BoolVar(&req.Force, "force", false, "ignore rule filters and settle delay")
 	cmd.Flags().BoolVar(&req.DryRun, "dry-run", false, "show what would be done")
 	return cmd
@@ -259,7 +259,7 @@ func newReplicateCmd(g *globals) *cobra.Command {
 
 func newUnreplicateCmd(g *globals) *cobra.Command {
 	var on []string
-	var dry bool
+	var dry, exclude bool
 	cmd := &cobra.Command{
 		Use:   "unreplicate <hash>",
 		Short: "Remove replicas of a torrent (files are always kept)",
@@ -269,7 +269,9 @@ func newUnreplicateCmd(g *globals) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			res, err := svc.Unreplicate(ctxOf(cmd), strings.ToLower(args[0]), on, dry)
+			res, err := svc.Unreplicate(ctxOf(cmd), replicator.UnreplicateRequest{
+				Hash: strings.ToLower(args[0]), On: on, Exclude: exclude, DryRun: dry,
+			})
 			if err != nil {
 				return err
 			}
@@ -277,6 +279,29 @@ func newUnreplicateCmd(g *globals) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringSliceVar(&on, "on", nil, "instances to remove the replica from (default: all replicas)")
+	cmd.Flags().BoolVar(&exclude, "exclude", false, "also tag the source torrent with daemon.exclude_tag so rules never re-add it")
+	cmd.Flags().BoolVar(&dry, "dry-run", false, "show what would be done")
+	return cmd
+}
+
+func newIncludeCmd(g *globals) *cobra.Command {
+	var dry bool
+	cmd := &cobra.Command{
+		Use:   "include <hash>",
+		Short: "Let rules replicate a torrent excluded with 'unreplicate --exclude' again",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := g.service()
+			if err != nil {
+				return err
+			}
+			res, err := svc.Include(ctxOf(cmd), strings.ToLower(args[0]), dry)
+			if err != nil {
+				return err
+			}
+			return printResults(cmd.OutOrStdout(), g.output, res)
+		},
+	}
 	cmd.Flags().BoolVar(&dry, "dry-run", false, "show what would be done")
 	return cmd
 }

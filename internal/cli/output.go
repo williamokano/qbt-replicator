@@ -60,6 +60,21 @@ func printPlan(w io.Writer, format string, p *replicator.Plan) error {
 	if err := printActions(w, p.Actions); err != nil {
 		return err
 	}
+	if len(p.Skipped) > 0 {
+		fmt.Fprintln(w, "\nCompleted but not replicated:")
+		tw := newTable(w)
+		fmt.Fprintln(tw, "TORRENT\tHASH\tSOURCE\tTARGET\tRULE\tREASON")
+		for _, s := range p.Skipped {
+			target := s.Target
+			if target == "" {
+				target = "(all)"
+			}
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", trunc(s.Name, 50), short(s.Hash), s.Source, target, s.Rule, s.Reason)
+		}
+		if err := tw.Flush(); err != nil {
+			return err
+		}
+	}
 	for _, n := range p.Notes {
 		fmt.Fprintln(w, "note:", n)
 	}

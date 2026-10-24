@@ -154,6 +154,8 @@ type TorrentRow struct {
 	Cells    map[string]Cell `json:"instances"`
 	TotalUp  int64           `json:"total_up_speed"`
 	Copies   int             `json:"copies"`
+	// Excluded is true when a source copy carries daemon.exclude_tag.
+	Excluded bool `json:"excluded"`
 }
 
 // TorrentFilter narrows Torrents.
@@ -186,6 +188,9 @@ func (s *Service) Torrents(ctx context.Context, f TorrentFilter) []TorrentRow {
 			}
 			if t.Progress >= 1 {
 				r.Complete = true
+			}
+			if !t.HasTag(tag) && t.HasTag(s.Config().Daemon.ExcludeTag) {
+				r.Excluded = true
 			}
 			r.Cells[name] = Cell{Present: true, Replica: t.HasTag(tag), State: t.State, Progress: t.Progress,
 				UpSpeed: t.UpSpeed, Ratio: t.Ratio, SavePath: t.SavePath}
@@ -236,8 +241,13 @@ func (s *Service) Replicate(ctx context.Context, req replicator.ReplicateRequest
 }
 
 // Unreplicate removes replicas (files kept).
-func (s *Service) Unreplicate(ctx context.Context, hash string, on []string, dryRun bool) ([]replicator.Result, error) {
-	return s.Engine().Unreplicate(ctx, hash, on, dryRun)
+func (s *Service) Unreplicate(ctx context.Context, req replicator.UnreplicateRequest) ([]replicator.Result, error) {
+	return s.Engine().Unreplicate(ctx, req)
+}
+
+// Include lets rules replicate a previously excluded torrent again.
+func (s *Service) Include(ctx context.Context, hash string, dryRun bool) ([]replicator.Result, error) {
+	return s.Engine().Include(ctx, hash, dryRun)
 }
 
 // Events returns recent events, newest first.

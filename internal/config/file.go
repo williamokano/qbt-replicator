@@ -29,22 +29,24 @@ daemon:
   interval: 30s
   dry_run: false
 
-# Add at least two qBittorrent WebUIs that share the same storage paths.
-instances: []
-#  - name: qbt-1
-#    url: http://gluetun-1:8080
-#    username: admin
-#    password: ${QBT1_PASSWORD}
-#  - name: qbt-2
-#    url: http://gluetun-2:8080
-#    username: admin
-#    password: ${QBT2_PASSWORD}
-
-# Replicate torrents completed on qbt-1 to every other instance.
-rules: []
-#  - name: main
-#    sources: [qbt-1]
-#    targets: ["*"]
+# Add at least two qBittorrent WebUIs that share the same storage paths, and at
+# least one rule: uncomment the two blocks below (remove the leading "# ") and edit.
+#
+# instances:
+#   - name: qbt-1
+#     url: http://gluetun-1:8080
+#     username: admin
+#     password: ${QBT1_PASSWORD}
+#   - name: qbt-2
+#     url: http://gluetun-2:8080
+#     username: admin
+#     password: ${QBT2_PASSWORD}
+#
+# # Replicate torrents completed on qbt-1 to every other instance.
+# rules:
+#   - name: main
+#     sources: [qbt-1]
+#     targets: ["*"]
 `
 
 // WriteStarter creates path (and its directory) with the starter config.
@@ -140,7 +142,7 @@ func encode(doc *yaml.Node) ([]byte, error) {
 // ${QBT1_PASSWORD} are left visible since they contain no secret.
 func MaskSecrets(raw []byte) ([]byte, error) {
 	var doc yaml.Node
-	if err := yaml.Unmarshal(raw, &doc); err != nil {
+	if err := unmarshalNode(raw, &doc); err != nil {
 		return nil, err
 	}
 	changed := false
@@ -161,7 +163,7 @@ var ErrUnknownMasked = errors.New("a password is still " + Mask + " but has no s
 // UnmaskSecrets restores every Mask value in edited from the same path in previous.
 func UnmaskSecrets(edited, previous []byte) ([]byte, error) {
 	var doc yaml.Node
-	if err := yaml.Unmarshal(edited, &doc); err != nil {
+	if err := unmarshalNode(edited, &doc); err != nil {
 		return nil, err
 	}
 	if !bytes.Contains(edited, []byte(Mask)) {

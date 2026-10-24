@@ -67,6 +67,8 @@ type DaemonConfig struct {
 	ReplicaTag  string        `mapstructure:"replica_tag" json:"replica_tag" yaml:"replica_tag"`
 	// OrphanGraceTicks is how many consecutive ticks a replica must be orphaned before removal.
 	OrphanGraceTicks int `mapstructure:"orphan_grace_ticks" json:"orphan_grace_ticks" yaml:"orphan_grace_ticks"`
+	// ExcludeTag marks source torrents that must never be replicated (any rule).
+	ExcludeTag string `mapstructure:"exclude_tag" json:"exclude_tag" yaml:"exclude_tag"`
 	// StateFile persists planner memory (orphan confirmations) across runs.
 	// Empty means "state.json" next to the config file; "none" disables it.
 	StateFile string `mapstructure:"state_file" json:"state_file" yaml:"state_file"`
@@ -156,6 +158,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("daemon.dry_run", false)
 	v.SetDefault("daemon.replica_tag", "qbtr-replica")
 	v.SetDefault("daemon.orphan_grace_ticks", 2)
+	v.SetDefault("daemon.exclude_tag", "qbtr-exclude")
 }
 
 // ResolvePath picks the configuration path: explicit flag, then $QBTR_CONFIG,
@@ -201,7 +204,7 @@ func Parse(raw []byte) (*Config, error) {
 
 	expanded, err := expandEnv(raw)
 	if err != nil {
-		return nil, fmt.Errorf("parsing yaml: %w", err)
+		return nil, err
 	}
 	if err := v.ReadConfig(bytes.NewReader(expanded)); err != nil {
 		return nil, fmt.Errorf("parsing yaml: %w", err)
@@ -312,6 +315,9 @@ func (c *Config) Validate() error {
 	}
 	if strings.TrimSpace(c.Daemon.ReplicaTag) == "" || strings.Contains(c.Daemon.ReplicaTag, ",") {
 		errs = append(errs, errors.New("daemon.replica_tag must be non-empty and contain no commas"))
+	}
+	if t := strings.TrimSpace(c.Daemon.ExcludeTag); t == "" || strings.Contains(t, ",") || t == c.Daemon.ReplicaTag {
+		errs = append(errs, errors.New("daemon.exclude_tag must be non-empty, contain no commas and differ from replica_tag"))
 	}
 	if c.Daemon.OrphanGraceTicks < 1 {
 		errs = append(errs, errors.New("daemon.orphan_grace_ticks must be >= 1"))

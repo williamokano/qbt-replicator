@@ -67,6 +67,7 @@ The configuration file is looked up in this order:
 		newTorrentsCmd(g),
 		newReplicateCmd(g),
 		newUnreplicateCmd(g),
+		newIncludeCmd(g),
 		newEventsCmd(g),
 		newConfigCmd(g),
 		newHealthcheckCmd(g),

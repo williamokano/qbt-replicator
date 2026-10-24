@@ -207,10 +207,10 @@ func TestManualReplicateAndUnreplicate(t *testing.T) {
 	if _, ok := cl.b.Get("h1"); !ok {
 		t.Fatal("not replicated")
 	}
-	if _, err := cl.eng.Unreplicate(ctx, "h1", []string{"a"}, false); !errors.Is(err, replicator.ErrNotReplica) {
+	if _, err := cl.eng.Unreplicate(ctx, replicator.UnreplicateRequest{Hash: "h1", On: []string{"a"}}); !errors.Is(err, replicator.ErrNotReplica) {
 		t.Fatalf("unreplicate of source must be refused, got %v", err)
 	}
-	res, err = cl.eng.Unreplicate(ctx, "h1", nil, false)
+	res, err = cl.eng.Unreplicate(ctx, replicator.UnreplicateRequest{Hash: "h1"})
 	if err != nil || len(res) != 1 {
 		t.Fatalf("unreplicate: %v %+v", err, res)
 	}
@@ -274,5 +274,92 @@ func TestStatePersistsAcrossEngines(t *testing.T) {
 	mk().RunOnce(ctx, false) // second confirmation from a fresh process
 	if _, ok := cl.b.Get("h1"); ok {
 		t.Fatal("orphan grace did not survive restart")
+	}
+}
+
+// Manual replication without explicit targets must follow the rule's targets,
+// and repeated clicks must not spill over to instances no rule targets.
+func TestManualReplicateFollowsRuleTargets(t *testing.T) {
+	cl := newCluster(t, "    targets: [b]\n    settle_delay: 0s\n")
+	seedShow(cl.a)
+	ctx := context.Background()
+	for range 2 {
+		res, err := cl.eng.Replicate(ctx, replicator.ReplicateRequest{Hash: "h1"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, r := range res {
+			if r.Action.Target != "b" {
+				t.Fatalf("replicated to %s, rule only targets b", r.Action.Target)
+			}
+		}
+	}
+	if _, ok := cl.c.Get("h1"); ok {
+		t.Fatal("replicated to c without a rule")
+	}
+	// Explicit targets are honored.
+	if _, err := cl.eng.Replicate(ctx, replicator.ReplicateRequest{Hash: "h1", To: []string{"c"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := cl.c.Get("h1"); !ok {
+		t.Fatal("explicit target ignored")
+	}
+}
+
+func TestManualReplicateWithoutRuleNeedsTargets(t *testing.T) {
+	cl := newCluster(t, "    settle_delay: 0s\n")
+	cl.b.Seed(qbt.Torrent{Hash: "x", Name: "x", SavePath: "/d"}, nil, false)
+	_, err := cl.eng.Replicate(context.Background(), replicator.ReplicateRequest{Hash: "x", Force: true})
+	if err == nil || !strings.Contains(err.Error(), "no rule replicates from b") {
+		t.Fatalf("expected no-rule error, got %v", err)
+	}
+}
+
+// Remove & exclude: the source is tagged first, replicas go away and the
+// daemon does not re-add them until the torrent is included again.
+func TestUnreplicateExcludeAndInclude(t *testing.T) {
+	cl := newCluster(t, "    settle_delay: 0s\n")
+	seedShow(cl.a)
+	ctx := context.Background()
+	cl.eng.RunOnce(ctx, false)
+	if _, ok := cl.b.Get("h1"); !ok {
+		t.Fatal("setup: not replicated")
+	}
+	res, err := cl.eng.Unreplicate(ctx, replicator.UnreplicateRequest{Hash: "h1", Exclude: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res[0].Action.Type != replicator.ActionExclude || res[0].Action.Target != "a" {
+		t.Fatalf("exclude must run first on the source: %+v", res[0].Action)
+	}
+	if e, _ := cl.a.Get("h1"); !e.Torrent.HasTag("qbtr-exclude") {
+		t.Fatalf("source not tagged: %q", e.Torrent.RawTags)
+	}
+	rep := cl.eng.RunOnce(ctx, false)
+	if len(rep.Results) != 0 {
+		t.Fatalf("excluded torrent re-added: %+v", rep.Plan.Actions)
+	}
+	if _, ok := cl.b.Get("h1"); ok {
+		t.Fatal("replica on b not removed")
+	}
+	found := false
+	for _, s := range rep.Plan.Skipped {
+		found = found || strings.Contains(s.Reason, "excluded")
+	}
+	if !found {
+		t.Errorf("skip reason missing: %+v", rep.Plan.Skipped)
+	}
+
+	if _, err := cl.eng.Include(ctx, "h1", false); err != nil {
+		t.Fatal(err)
+	}
+	if e, _ := cl.a.Get("h1"); e.Torrent.HasTag("qbtr-exclude") {
+		t.Fatal("exclude tag not removed")
+	}
+	if rep := cl.eng.RunOnce(ctx, false); rep.Failed > 0 || len(rep.Results) != 2 {
+		t.Fatalf("not replicated again after include: %+v %s", rep.Plan.Actions, failures(rep))
+	}
+	if cl.a.DeletedFiles+cl.b.DeletedFiles+cl.c.DeletedFiles != 0 {
+		t.Fatal("files deleted")
 	}
 }

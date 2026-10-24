@@ -336,6 +336,27 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			e.Torrent.RatioLimit, _ = strconv.ParseFloat(r.PostForm.Get("ratioLimit"), 64)
 			e.Torrent.SeedingTimeLimit, _ = strconv.ParseInt(r.PostForm.Get("seedingTimeLimit"), 10, 64)
 		}
+	case "torrents/addTags", "torrents/removeTags":
+		_ = r.ParseForm()
+		tags := strings.Split(r.PostForm.Get("tags"), ",")
+		for _, h := range strings.Split(r.PostForm.Get("hashes"), "|") {
+			e, ok := s.torrents[h]
+			if !ok {
+				continue
+			}
+			cur := e.Torrent.Tags()
+			for _, tg := range tags {
+				tg = strings.TrimSpace(tg)
+				has := slices.Contains(cur, tg)
+				if ep == "torrents/addTags" && !has && tg != "" {
+					cur = append(cur, tg)
+				}
+				if ep == "torrents/removeTags" && has {
+					cur = slices.DeleteFunc(cur, func(x string) bool { return x == tg })
+				}
+			}
+			e.Torrent.RawTags = strings.Join(cur, ", ")
+		}
 	case "torrents/categories":
 		writeJSON(w, s.categories)
 	case "torrents/createCategory":
