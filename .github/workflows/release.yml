@@ -50,7 +50,8 @@ jobs:
   plan:
     name: Resolve version
     needs: release-please
-    if: ${{ !cancelled() && needs.release-please.result != 'failure' }}
+    # Run even if release-please fails, so main still publishes :latest / :sha-*.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.tag.outputs.tag }}
@@ -59,6 +60,7 @@ jobs:
       - id: tag
         env:
           INPUT_TAG: ${{ inputs.tag }}
+          RP_RESULT: ${{ needs.release-please.result }}
           RP_CREATED: ${{ needs.release-please.outputs.release_created }}
           RP_TAG: ${{ needs.release-please.outputs.tag_name }}
         run: |
@@ -72,6 +74,9 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "main=$main" >> "$GITHUB_OUTPUT"
           echo "Release tag: ${tag:-<none>}, main build: $main" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$RP_RESULT" = failure ]; then
+            echo "::warning::release-please failed; only :latest/:sha-* are published. If it says Actions may not create pull requests, enable Settings > Actions > General > 'Allow GitHub Actions to create and approve pull requests'."
+          fi
 
   test:
     name: Test
