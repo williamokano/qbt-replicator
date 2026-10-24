@@ -152,7 +152,7 @@ qbt-replicator plan                                   # what the next pass would
 qbt-replicator status                                 # health, connection status, speeds
 qbt-replicator instances list | check
 qbt-replicator torrents list [--instance X] [--search S] [--category C] [--completed]
-qbt-replicator replicate <hash> [--from X] [--to Y,Z] [--force] [--dry-run]
+qbt-replicator replicate <hash> [--from X] [--to Y,Z] [--force] [--dry-run]   # default targets: the rules for the source
 qbt-replicator unreplicate <hash> [--on Y] [--dry-run]   # refuses non-replicas
 qbt-replicator events [--limit 50]                    # activity log of the running daemon
 qbt-replicator config init | validate | show          # init writes a starter file; show redacts secrets

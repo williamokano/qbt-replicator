@@ -276,3 +276,41 @@ func TestStatePersistsAcrossEngines(t *testing.T) {
 		t.Fatal("orphan grace did not survive restart")
 	}
 }
+
+// Manual replication without explicit targets must follow the rule's targets,
+// and repeated clicks must not spill over to instances no rule targets.
+func TestManualReplicateFollowsRuleTargets(t *testing.T) {
+	cl := newCluster(t, "    targets: [b]\n    settle_delay: 0s\n")
+	seedShow(cl.a)
+	ctx := context.Background()
+	for range 2 {
+		res, err := cl.eng.Replicate(ctx, replicator.ReplicateRequest{Hash: "h1"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, r := range res {
+			if r.Action.Target != "b" {
+				t.Fatalf("replicated to %s, rule only targets b", r.Action.Target)
+			}
+		}
+	}
+	if _, ok := cl.c.Get("h1"); ok {
+		t.Fatal("replicated to c without a rule")
+	}
+	// Explicit targets are honored.
+	if _, err := cl.eng.Replicate(ctx, replicator.ReplicateRequest{Hash: "h1", To: []string{"c"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := cl.c.Get("h1"); !ok {
+		t.Fatal("explicit target ignored")
+	}
+}
+
+func TestManualReplicateWithoutRuleNeedsTargets(t *testing.T) {
+	cl := newCluster(t, "    settle_delay: 0s\n")
+	cl.b.Seed(qbt.Torrent{Hash: "x", Name: "x", SavePath: "/d"}, nil, false)
+	_, err := cl.eng.Replicate(context.Background(), replicator.ReplicateRequest{Hash: "x", Force: true})
+	if err == nil || !strings.Contains(err.Error(), "no rule replicates from b") {
+		t.Fatalf("expected no-rule error, got %v", err)
+	}
+}

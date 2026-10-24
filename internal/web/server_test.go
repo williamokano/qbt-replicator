@@ -153,3 +153,20 @@ func TestPlanPageExplainsSkippedTorrents(t *testing.T) {
 		t.Errorf("plan page does not explain the private skip:\n%s", body)
 	}
 }
+
+func TestTorrentsPageRemovesSingleReplica(t *testing.T) {
+	h, _, b := setup(t, "")
+	if rec := do(h, http.MethodPost, "/api/v1/replicate", strings.NewReader(`{"hash":"h1"}`), nil); rec.Code != 200 {
+		t.Fatalf("replicate: %d %s", rec.Code, rec.Body.String())
+	}
+	body := do(h, http.MethodGet, "/torrents?fresh=1", nil, nil).Body.String()
+	if !strings.Contains(body, `name="on" value="b"`) {
+		t.Fatal("per-instance remove button missing for replica on b")
+	}
+	form := url.Values{"hash": {"h1"}, "on": {"b"}, "return": {"/torrents"}}
+	rec := do(h, http.MethodPost, "/actions/unreplicate", strings.NewReader(form.Encode()),
+		map[string]string{"Content-Type": "application/x-www-form-urlencoded"})
+	if rec.Code != http.StatusSeeOther || len(b.Hashes()) != 0 {
+		t.Fatalf("remove single replica: %d %v", rec.Code, b.Hashes())
+	}
+}

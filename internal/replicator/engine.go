@@ -246,11 +246,13 @@ func (e *Engine) Replicate(ctx context.Context, req ReplicateRequest) ([]Result,
 	tag := e.cfg.Daemon.ReplicaTag
 	from := req.From
 	if from == "" {
+		// Prefer an owner that some rule uses as a source.
 		for _, n := range snap.Order {
 			st := snap.Instances[n]
 			if t, ok := st.Torrents[req.Hash]; ok && st.Healthy && !t.HasTag(tag) {
-				from = n
-				break
+				if from == "" || (len(ruleTargets(e.cfg, from)) == 0 && len(ruleTargets(e.cfg, n)) > 0) {
+					from = n
+				}
 			}
 		}
 		if from == "" {
@@ -289,9 +291,14 @@ func (e *Engine) Replicate(ctx context.Context, req ReplicateRequest) ([]Result,
 			return nil, fmt.Errorf("not eligible under rule %q: %s (use force to override)", rule.Name, why)
 		}
 	}
+	// Without explicit targets, follow the rules: only the targets of rules
+	// whose sources include this instance. Explicit targets are honored as asked.
 	targets := req.To
 	if len(targets) == 0 {
-		targets = e.cfg.Expand([]string{config.Wildcard}, from)
+		targets = ruleTargets(e.cfg, from)
+		if len(targets) == 0 {
+			return nil, fmt.Errorf("no rule replicates from %s; choose the target instances explicitly", from)
+		}
 	}
 	srcCfg, _ := e.cfg.Instance(from)
 	var actions []Action
@@ -308,10 +315,30 @@ func (e *Engine) Replicate(ctx context.Context, req ReplicateRequest) ([]Result,
 				continue
 			}
 		}
-		actions = append(actions, addAction(ActionAdd, e.cfg, rule, srcCfg, tgtCfg, t, "manual replication"))
+		addRule := rule
+		if r, ok := ruleFor(e.cfg, from, tn); ok {
+			addRule = r
+		}
+		actions = append(actions, addAction(ActionAdd, e.cfg, addRule, srcCfg, tgtCfg, t, "manual replication"))
 	}
 	exec := e.exec.withDryRun(req.DryRun || e.cfg.Daemon.DryRun)
 	return exec.Execute(ctx, actions), nil
+}
+
+// ruleTargets returns the union of targets of every rule whose sources include src.
+func ruleTargets(cfg *config.Config, src string) []string {
+	var out []string
+	for _, r := range cfg.Rules {
+		if !slices.Contains(cfg.Expand(r.Sources), src) {
+			continue
+		}
+		for _, t := range cfg.Expand(r.Targets, src) {
+			if !slices.Contains(out, t) {
+				out = append(out, t)
+			}
+		}
+	}
+	return out
 }
 
 func defaultManualRule() config.RuleConfig {

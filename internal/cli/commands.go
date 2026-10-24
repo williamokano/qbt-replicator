@@ -251,7 +251,7 @@ func newReplicateCmd(g *globals) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&req.From, "from", "", "source instance (default: first instance owning the torrent)")
-	cmd.Flags().StringSliceVar(&req.To, "to", nil, "target instances (default: all others)")
+	cmd.Flags().StringSliceVar(&req.To, "to", nil, "target instances (default: the targets of the rules for the source)")
 	cmd.Flags().BoolVar(&req.Force, "force", false, "ignore rule filters and settle delay")
 	cmd.Flags().BoolVar(&req.DryRun, "dry-run", false, "show what would be done")
 	return cmd
