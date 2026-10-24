@@ -205,7 +205,7 @@ func TestEnvExpansionIsYAMLSafe(t *testing.T) {
 
 // The documented full example and the example file must stay valid.
 func TestDocumentedExamplesParse(t *testing.T) {
-	for _, k := range []string{"QBT1_PASSWORD", "QBT2_PASSWORD", "QBT3_PASSWORD", "QBTR_UI_PASSWORD"} {
+	for _, k := range []string{"QBT1_PASSWORD", "QBT2_PASSWORD", "QBT3_PASSWORD", "QBT3_API_KEY", "QBTR_UI_PASSWORD"} {
 		t.Setenv(k, "x")
 	}
 	doc, err := os.ReadFile("../../docs/configuration.md")

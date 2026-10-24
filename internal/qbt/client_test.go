@@ -196,3 +196,28 @@ func TestParseVersionAndTags(t *testing.T) {
 		t.Errorf("tags: %v", tor.Tags())
 	}
 }
+
+func TestAPIKeyAuth(t *testing.T) {
+	srv := fake.New(true, "admin", "pw")
+	defer srv.Close()
+	srv.APIKey = "qbt_secret"
+	srv.Seed(qbt.Torrent{Hash: "h", Name: "n", SavePath: "/d"}, nil, false)
+	ctx := context.Background()
+
+	c, _ := qbt.New(qbt.Options{BaseURL: srv.URL, APIKey: "qbt_secret"})
+	ts, err := c.Torrents(ctx)
+	if err != nil || len(ts) != 1 {
+		t.Fatalf("api key auth: %v %v", ts, err)
+	}
+	if err := c.Stop(ctx, "h"); err != nil {
+		t.Fatalf("write with api key: %v", err)
+	}
+	if n := countCalls(srv.Calls(), "auth/login"); n != 0 {
+		t.Errorf("api key must not log in, got %d login calls", n)
+	}
+
+	bad, _ := qbt.New(qbt.Options{BaseURL: srv.URL, APIKey: "qbt_wrong"})
+	if _, err := bad.Torrents(ctx); !errors.Is(err, qbt.ErrAPIKeyRejected) {
+		t.Fatalf("wrong key: got %v", err)
+	}
+}

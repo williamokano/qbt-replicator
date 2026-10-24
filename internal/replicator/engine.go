@@ -47,7 +47,7 @@ func NewEngine(cfg *config.Config, log *events.Log, metrics *Metrics) (*Engine, 
 	clients := map[string]*qbt.Client{}
 	for _, in := range cfg.Instances {
 		c, err := qbt.New(qbt.Options{
-			Name: in.Name, BaseURL: in.URL, Username: in.Username, Password: in.Password,
+			Name: in.Name, BaseURL: in.URL, Username: in.Username, Password: in.Password, APIKey: in.APIKey,
 			InsecureSkipVerify: in.InsecureSkipVerify, Timeout: in.Timeout,
 			ExportFallbackDir: in.ExportFallbackDir,
 		})

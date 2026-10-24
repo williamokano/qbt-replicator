@@ -31,12 +31,12 @@ checks a file without starting anything.
 - **`${VAR}` in values** is replaced with the environment variable `VAR` when the file is
   loaded, e.g. `password: ${QBT1_PASSWORD}`. Expansion happens inside the parsed value, so
   passwords may contain any character (`"`, `#`, `:`, `$`, …).
-- **`password_file:`** reads an instance password from a file (Docker secrets).
+- **`password_file:`** / **`api_key_file:`** read an instance password or API key from a file (Docker secrets).
 - **`QBTR_<SECTION>_<KEY>`** overrides a scalar setting, e.g. `QBTR_LOG_LEVEL=debug`,
   `QBTR_DAEMON_DRY_RUN=true`, `QBTR_DAEMON_INTERVAL=2s`, `QBTR_SERVER_LISTEN=:9090`.
   Overrides win over the file, and the Config page lists the active ones. Lists such as
   instances and rules can't be overridden this way.
-- In the UI, literal passwords are never shown: the form leaves them empty ("unchanged") and
+- In the UI, literal passwords and API keys are never shown: the form leaves them empty ("unchanged") and
   the YAML editor shows `********`. Leave them as-is to keep the stored value.
 
 Durations use Go syntax: `500ms`, `5s`, `2m`, `1h30m`. Sizes accept `1024`, `500MB`, `1.5GiB`.
@@ -87,6 +87,8 @@ explains what's wrong: wrong password, connection refused, host not found, TLS, 
 | `url` | required | WebUI base URL as seen from the qbt-replicator container, e.g. `http://gluetun-1:8080` or `http://192.168.1.10:8080`. |
 | `username` / `password` | empty | WebUI credentials. Leave both empty if the instance whitelists qbt-replicator's subnet ("Bypass authentication for clients in whitelisted IP subnets"). |
 | `password_file` | | Read the password from this file instead. |
+| `api_key` | empty | Authenticate with a WebUI **API key** instead of username/password: qBittorrent 5.2+, generated in *Options → WebUI*. It's sent as `Authorization: Bearer …` on every request, with no login session. Use either `api_key` or `username`/`password`, not both. |
+| `api_key_file` | | Read the API key from this file (Docker secrets). |
 | `insecure_skip_verify` | `false` | Accept self-signed HTTPS certificates. |
 | `timeout` | `15s` | Per-request timeout. |
 | `path_mappings` | none | Only if containers mount the share at different paths. List of `{instance: /path/in/this/container, canonical: /shared/name}`; the longest prefix wins. |
@@ -282,8 +284,7 @@ instances:
     password: ${QBT2_PASSWORD}
   - name: qbt-3
     url: http://gluetun-3:8080
-    username: admin
-    password: ${QBT3_PASSWORD}
+    api_key: ${QBT3_API_KEY}        # qBittorrent 5.2+: API key instead of username/password
 
 rules:
   - name: tv-and-movies

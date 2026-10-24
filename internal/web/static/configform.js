@@ -33,6 +33,17 @@
       out.textContent = "✗ " + e;
     }).finally(function () { btn.disabled = false; });
   }
+  // Show username/password or API key fields for the selected auth type.
+  function syncAuth(select) {
+    var row = select.closest("[data-row]");
+    row.querySelectorAll("[data-auth]").forEach(function (el) {
+      el.hidden = el.getAttribute("data-auth") !== select.value;
+    });
+  }
+  form.addEventListener("change", function (ev) {
+    if (ev.target.matches("[data-auth-select]")) syncAuth(ev.target);
+  });
+  form.querySelectorAll("[data-auth-select]").forEach(syncAuth);
 
   form.addEventListener("click", function (ev) {
     var test = ev.target.closest("[data-test]");

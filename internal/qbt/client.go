@@ -29,14 +29,20 @@ var (
 	ErrNotFound     = errors.New("qbittorrent: torrent not found")
 	ErrAddFailed    = errors.New("qbittorrent: torrent add failed")
 	ErrNoMetadata   = errors.New("qbittorrent: torrent metadata not available")
+	// ErrAPIKeyRejected means the WebUI refused the API key (wrong key, or a
+	// qBittorrent version without API key support).
+	ErrAPIKeyRejected = errors.New("qbittorrent: API key rejected (check the key; API keys need qBittorrent 5.2+)")
 )
 
 // Options configures a Client.
 type Options struct {
-	Name               string
-	BaseURL            string
-	Username           string
-	Password           string
+	Name     string
+	BaseURL  string
+	Username string
+	Password string
+	// APIKey, when set, authenticates every request with "Authorization: Bearer"
+	// (qBittorrent 5.2+) instead of a username/password session.
+	APIKey             string
 	InsecureSkipVerify bool
 	Timeout            time.Duration
 	// ExportFallbackDir is a mounted BT_backup directory used when /torrents/export is unavailable.
@@ -155,6 +161,9 @@ func (c *Client) Login(ctx context.Context) error {
 }
 
 func (c *Client) login(ctx context.Context) error {
+	if c.opts.APIKey != "" {
+		return nil // stateless: the key is sent with every request
+	}
 	if c.opts.Username == "" && c.opts.Password == "" {
 		return nil // auth bypassed (whitelisted subnet)
 	}
@@ -219,6 +228,9 @@ func (c *Client) send(ctx context.Context, method, endpoint string, body bodyFun
 	origin := c.base.Scheme + "://" + c.base.Host
 	req.Header.Set("Referer", c.base.String())
 	req.Header.Set("Origin", origin)
+	if c.opts.APIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.opts.APIKey)
+	}
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("%s %s: %w", method, endpoint, err)
@@ -234,6 +246,10 @@ func (c *Client) do(ctx context.Context, method, endpoint string, body bodyFunc)
 	resp, err := c.send(ctx, method, endpoint, body)
 	if err != nil {
 		return nil, err
+	}
+	if resp.StatusCode == http.StatusForbidden && c.opts.APIKey != "" {
+		drain(resp)
+		return nil, ErrAPIKeyRejected
 	}
 	if resp.StatusCode == http.StatusForbidden {
 		drain(resp)
@@ -273,6 +289,9 @@ func (c *Client) getText(ctx context.Context, endpoint string, q url.Values) (st
 		return "", err
 	}
 	defer drain(resp)
+	if resp.StatusCode == http.StatusForbidden && c.opts.APIKey != "" {
+		return "", ErrAPIKeyRejected
+	}
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("GET %s: status %d", endpoint, resp.StatusCode)
 	}

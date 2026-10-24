@@ -101,14 +101,25 @@ func (e *formErrors) float(label, s string) float64 {
 
 // instanceFromForm reads instance row i on top of the stored instance with the
 // row's original name (keeping path_mappings, password_file, …). An empty
-// password field keeps the stored password.
+// password or API key field keeps the stored one.
 func instanceFromForm(f url.Values, i int, old map[string]config.InstanceConfig, errs *formErrors) config.InstanceConfig {
 	name := field(f, "inst", i, "name")
 	in := old[field(f, "inst", i, "orig")]
 	in.Name, in.URL = name, field(f, "inst", i, "url")
-	in.Username = field(f, "inst", i, "username")
-	if pw := f.Get(fmt.Sprintf("inst-%d-password", i)); pw != "" {
-		in.Password = pw
+	if field(f, "inst", i, "auth") == "apikey" {
+		if k := f.Get(fmt.Sprintf("inst-%d-api_key", i)); k != "" {
+			in.APIKey = k
+		}
+		if in.APIKey == "" && in.APIKeyFile == "" {
+			*errs = append(*errs, fmt.Sprintf("Instance %s: enter the API key (or switch back to username & password)", name))
+		}
+		in.Username, in.Password, in.PasswordFile = "", "", ""
+	} else {
+		in.Username = field(f, "inst", i, "username")
+		if pw := f.Get(fmt.Sprintf("inst-%d-password", i)); pw != "" {
+			in.Password = pw
+		}
+		in.APIKey, in.APIKeyFile = "", ""
 	}
 	in.InsecureSkipVerify = checked(f, fmt.Sprintf("inst-%d-insecure", i))
 	in.Timeout = errs.duration("Instance "+name+" timeout", field(f, "inst", i, "timeout"), 15*time.Second)

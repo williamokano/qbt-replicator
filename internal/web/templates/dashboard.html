@@ -36,10 +36,10 @@
 {{with .LastRun}}
   <p>{{ts .Started}} · {{dur .Duration}} · {{len .Results}} action(s), {{.Failed}} failed{{if .DryRun}} · dry run{{end}}</p>
   {{if .Results}}
-  <table>
-    <tr><th>Action</th><th>Source → Target</th><th>Torrent</th><th>Result</th></tr>
+  <table class="stack">
+    <tr class="head"><th>Action</th><th>Source → Target</th><th>Torrent</th><th>Result</th></tr>
     {{range .Results}}
-    <tr><td>{{.Action.Type}}</td><td>{{.Action.Source}} → {{.Action.Target}}</td><td>{{.Action.Name}}</td>
+    <tr><td data-label="Action">{{.Action.Type}}</td><td data-label="Where">{{.Action.Source}} → {{.Action.Target}}</td><td class="msg">{{.Action.Name}}</td>
         <td>{{if .Error}}<span class="err">{{.Error}}</span>{{else if .DryRun}}dry-run{{else}}ok{{end}}</td></tr>
     {{end}}
   </table>
@@ -59,10 +59,10 @@
 
 {{define "eventtable"}}
 {{if .}}
-<table>
-  <tr><th>Time</th><th>Level</th><th>Kind</th><th>Instance</th><th>Message</th></tr>
+<table class="stack events">
+  <tr class="head"><th>Time</th><th>Level</th><th>Kind</th><th>Instance</th><th>Message</th></tr>
   {{range .}}
-  <tr class="lvl-{{.Level}}"><td class="nowrap">{{ts .Time}}</td><td>{{.Level}}</td><td>{{.Kind}}</td><td>{{.Instance}}</td><td>{{.Message}}</td></tr>
+  <tr class="lvl-{{.Level}}"><td class="nowrap when">{{ts .Time}}</td><td class="tag">{{.Level}}</td><td class="tag">{{.Kind}}</td><td class="tag">{{.Instance}}</td><td class="msg">{{.Message}}</td></tr>
   {{end}}
 </table>
 {{else}}<p class="muted">No activity yet.</p>{{end}}

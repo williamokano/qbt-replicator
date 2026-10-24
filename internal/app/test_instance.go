@@ -43,7 +43,7 @@ func (s *Service) TestInstance(ctx context.Context, in config.InstanceConfig) In
 		timeout = in.Timeout
 	}
 	c, err := qbt.New(qbt.Options{
-		Name: in.Name, BaseURL: in.URL, Username: in.Username, Password: in.Password,
+		Name: in.Name, BaseURL: in.URL, Username: in.Username, Password: in.Password, APIKey: in.APIKey,
 		InsecureSkipVerify: in.InsecureSkipVerify, Timeout: timeout,
 	})
 	if err != nil {
@@ -83,6 +83,8 @@ func explainTestError(err error) string {
 	var dnsErr *net.DNSError
 	var opErr *net.OpError
 	switch {
+	case errors.Is(err, qbt.ErrAPIKeyRejected):
+		return "API key rejected: check the key (Options → WebUI). API keys need qBittorrent 5.2 or newer."
 	case errors.Is(err, qbt.ErrUnauthorized):
 		return "Wrong username or password (" + err.Error() + ")"
 	case errors.Is(err, qbt.ErrBanned):

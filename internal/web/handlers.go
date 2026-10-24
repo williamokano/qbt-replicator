@@ -42,8 +42,11 @@ func torrentFilter(r *http.Request) app.TorrentFilter {
 func (s *Server) torrentsPage(w http.ResponseWriter, r *http.Request) {
 	f := torrentFilter(r)
 	rows := s.svc.Torrents(r.Context(), f)
+	q := r.URL.Query()
+	q.Del("fresh")
 	s.render(w, r, "torrents", map[string]any{
 		"Rows": rows, "Instances": s.svc.Config().InstanceNames(), "Filter": f,
+		"Categories": s.svc.Categories(r.Context()), "Query": q.Encode(),
 		"Return": r.URL.RequestURI(),
 	})
 }

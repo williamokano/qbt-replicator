@@ -43,12 +43,20 @@ func (in InstanceConfig) Resolve() (InstanceConfig, error) {
 	in.URL = os.ExpandEnv(in.URL)
 	in.Username = os.ExpandEnv(in.Username)
 	in.Password = os.ExpandEnv(in.Password)
-	if in.PasswordFile != "" {
-		b, err := os.ReadFile(in.PasswordFile)
-		if err != nil {
-			return in, fmt.Errorf("reading password_file: %w", err)
+	in.APIKey = os.ExpandEnv(in.APIKey)
+	for _, f := range []struct {
+		key  string
+		path string
+		dst  *string
+	}{{"password_file", in.PasswordFile, &in.Password}, {"api_key_file", in.APIKeyFile, &in.APIKey}} {
+		if f.path == "" {
+			continue
 		}
-		in.Password = strings.TrimRight(string(b), "\r\n")
+		b, err := os.ReadFile(f.path)
+		if err != nil {
+			return in, fmt.Errorf("reading %s: %w", f.key, err)
+		}
+		*f.dst = strings.TrimSpace(string(b))
 	}
 	return in, nil
 }

@@ -36,6 +36,7 @@ JSON API**; every command and every UI button goes through the same service laye
   instance is unreachable.
 - Follows relocations: if the source moves its files, replicas are re-added at the new path.
 - Optional share-limit sync (ratio / seeding time) from source to replicas.
+- Username/password or **API key** authentication (qBittorrent 5.2+).
 - Works with qBittorrent **4.x and 5.x** (detects WebAPI dialect: `pause/resume` vs
   `stop/start`, `paused` vs `stopped`, 5.x status codes). Tested against 4.6.7 and 5.3.0.
 - Web UI: dashboard (health, VPN port **connected/firewalled**, speeds), torrent ×

@@ -86,7 +86,7 @@ func SaveFile(path string, raw []byte) error {
 // Mask is shown instead of literal secrets in the config editor.
 const Mask = "********"
 
-func isSecretKey(k string) bool { return k == "password" }
+func isSecretKey(k string) bool { return k == "password" || k == "api_key" }
 
 // secretPaths walks a YAML document and calls fn for every secret value,
 // identified by a stable path (sequence items with a "name" use it).
