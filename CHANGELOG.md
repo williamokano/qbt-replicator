@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.0](https://github.com/williamokano/qbt-replicator/compare/v0.4.0...v0.5.0) (2026-10-24)
+
+
+### Features
+
+* **notify:** send notifications to telegram and webhooks ([#18](https://github.com/williamokano/qbt-replicator/issues/18)) ([b8261ea](https://github.com/williamokano/qbt-replicator/commit/b8261ea49e6d04decb203b5d8d256913c871bdb5))
+* **store:** persist history and planner state in sqlite ([#17](https://github.com/williamokano/qbt-replicator/issues/17)) ([5c34fca](https://github.com/williamokano/qbt-replicator/commit/5c34fca08d103b6372ae2b5d086a52278b0c5eae))
+
 ## [0.4.0](https://github.com/williamokano/qbt-replicator/compare/v0.3.0...v0.4.0) (2026-10-24)
 
 
