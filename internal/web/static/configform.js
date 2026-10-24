@@ -1,11 +1,11 @@
-// Add/remove instance and rule rows in the config form. Row inputs are named
+// Add/remove instance, rule and notification rows in the config form. Row inputs are named
 // "<kind>-<index>-<field>"; new rows get an index above every existing one.
 (function () {
   var form = document.getElementById("cfgform");
   if (!form) return;
   var next = 0;
   form.querySelectorAll("[name]").forEach(function (el) {
-    var m = /^(?:inst|rule)-(\d+)-/.exec(el.name);
+    var m = /^(?:inst|rule|notif)-(\d+)-/.exec(el.name);
     if (m) next = Math.max(next, parseInt(m[1], 10) + 1);
   });
   // "Test" sends only this row's fields; the server tests them without saving.
@@ -20,7 +20,7 @@
     btn.disabled = true;
     out.className = "test-result muted";
     out.textContent = "Testing…";
-    fetch(form.getAttribute("data-test-url"), {
+    fetch(btn.getAttribute("data-test-url") || form.getAttribute("data-test-url"), {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: params.toString(),
@@ -33,7 +33,7 @@
       out.textContent = "✗ " + e;
     }).finally(function () { btn.disabled = false; });
   }
-  // Show username/password or API key fields for the selected auth type.
+  // Show the fields of the selected option (auth type, notification type).
   function syncAuth(select) {
     var row = select.closest("[data-row]");
     row.querySelectorAll("[data-auth]").forEach(function (el) {

@@ -13,6 +13,7 @@ import (
 
 	"github.com/williamokano/qbt-replicator/internal/config"
 	"github.com/williamokano/qbt-replicator/internal/events"
+	"github.com/williamokano/qbt-replicator/internal/notify"
 	"github.com/williamokano/qbt-replicator/internal/qbt"
 	"github.com/williamokano/qbt-replicator/internal/store"
 )
@@ -54,6 +55,7 @@ type Engine struct {
 	lastSn  *Snapshot
 	trigger chan struct{}
 	health  map[string]bool // last known reachability, for transition logging
+	notice  func(notify.Notice)
 }
 
 // NewEngine builds clients for every configured instance. With a store,
@@ -269,6 +271,9 @@ func (e *Engine) runOnce(ctx context.Context, dryRun bool, trigger string) *RunR
 	e.last = rep
 	e.stateMu.Unlock()
 	e.recordRun(trigger, start, dry, results)
+	if !dry {
+		e.noticeResults(results)
+	}
 	return rep
 }
 
@@ -281,6 +286,7 @@ func (e *Engine) afterManual(start time.Time, dry bool, results []Result) {
 		e.memory = mem
 		e.saveState()
 		e.stateMu.Unlock()
+		e.noticeResults(results)
 	}
 	e.recordRun(TriggerManual, start, dry, results)
 }
@@ -324,8 +330,12 @@ func (e *Engine) logHealthChanges(snap *Snapshot) {
 		switch {
 		case !st.Healthy && (!known || was):
 			e.events.Add(events.Event{Level: events.Warn, Kind: "health", Instance: name, Message: "instance unreachable: " + st.Error})
+			e.emit(notify.Notice{Kind: config.EventInstanceDown, Level: notify.LevelWarn, Instance: name,
+				Title: name + " is unreachable", Text: st.Error, Error: st.Error})
 		case st.Healthy && known && !was:
 			e.events.Add(events.Event{Level: events.Info, Kind: "health", Instance: name, Message: "instance reachable again"})
+			e.emit(notify.Notice{Kind: config.EventInstanceUp, Level: notify.LevelInfo, Instance: name,
+				Title: name + " is reachable again"})
 		}
 	}
 }

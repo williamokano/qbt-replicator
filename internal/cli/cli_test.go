@@ -3,6 +3,8 @@ package cli
 import (
 	"bytes"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -114,5 +116,25 @@ func TestHistoryAcrossCommands(t *testing.T) {
 	out, err = run(t, "-c", path, "events", "--hash", "h1")
 	if err != nil || !strings.Contains(out, "INFO") && !strings.Contains(out, "info") {
 		t.Fatalf("events: %v %s", err, out)
+	}
+}
+
+func TestNotifyCommands(t *testing.T) {
+	var hits int
+	hook := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hits++ }))
+	defer hook.Close()
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	doc := fmt.Sprintf("notifications:\n  - {name: hook, type: webhook, url: %q}\n", hook.URL)
+	if err := os.WriteFile(path, []byte(doc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := run(t, "-c", path, "notify", "test", "hook"); err != nil || hits != 1 {
+		t.Fatalf("notify test: %v %s (hits %d)", err, out, hits)
+	}
+	if _, err := run(t, "-c", path, "notify", "test", "nope"); err == nil {
+		t.Fatal("unknown notifier accepted")
+	}
+	if out, err := run(t, "-c", path, "notify", "list"); err != nil || !strings.Contains(out, "hook") {
+		t.Fatalf("notify list: %v %s", err, out)
 	}
 }

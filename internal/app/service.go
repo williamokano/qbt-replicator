@@ -13,6 +13,7 @@ import (
 
 	"github.com/williamokano/qbt-replicator/internal/config"
 	"github.com/williamokano/qbt-replicator/internal/events"
+	"github.com/williamokano/qbt-replicator/internal/notify"
 	"github.com/williamokano/qbt-replicator/internal/replicator"
 	"github.com/williamokano/qbt-replicator/internal/store"
 	"github.com/williamokano/qbt-replicator/internal/version"
@@ -27,6 +28,7 @@ type Service struct {
 	events  *events.Log
 	metrics *replicator.Metrics
 	store   *store.Store
+	notify  *notify.Dispatcher
 	logger  *slog.Logger
 	reload  chan struct{}
 	started time.Time
@@ -51,17 +53,30 @@ func New(cfg *config.Config, logger *slog.Logger) (*Service, error) {
 		started: time.Now(),
 	}
 	s.events.AddSink(s.persistEvent)
+	s.notify = notify.NewDispatcher(st, logger)
+	s.notify.Summary = s.summary
+	if err := s.notify.Configure(context.Background(), cfg); err != nil {
+		_ = st.Close()
+		return nil, err
+	}
 	eng, err := replicator.NewEngine(cfg, s.events, s.metrics, st)
 	if err != nil {
 		_ = st.Close()
 		return nil, err
 	}
+	eng.OnNotice(s.notify.Notify)
 	s.engine = eng
 	return s, nil
 }
 
-// Close releases the database.
-func (s *Service) Close() error { return s.store.Close() }
+// Close delivers queued notifications (one-shot CLI commands have no
+// dispatcher loop) and releases the database.
+func (s *Service) Close() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	s.notify.FlushNow(ctx)
+	return s.store.Close()
+}
 
 // Store returns the database (history, outbox).
 func (s *Service) Store() *store.Store { return s.store }

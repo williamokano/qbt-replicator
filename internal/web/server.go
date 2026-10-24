@@ -21,6 +21,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/williamokano/qbt-replicator/internal/app"
+	"github.com/williamokano/qbt-replicator/internal/config"
 	"github.com/williamokano/qbt-replicator/internal/replicator"
 	"github.com/williamokano/qbt-replicator/internal/version"
 )
@@ -56,25 +57,27 @@ func newServer(svc *app.Service, logger *slog.Logger) (*Server, error) {
 	base := strings.TrimRight(svc.Config().Server.BasePath, "/") + "/"
 	s := &Server{svc: svc, log: logger, base: base, pages: map[string]*template.Template{}}
 	funcs := template.FuncMap{
-		"bytes":     humanBytes,
-		"short":     func(h string) string { return h[:min(8, len(h))] },
-		"pct":       func(f float64) string { return fmt.Sprintf("%.0f%%", f*100) },
-		"since":     func(t time.Time) string { return since(t) },
-		"url":       func(p string) string { return base + strings.TrimPrefix(p, "/") },
-		"cell":      cellLabel,
-		"lower":     strings.ToLower,
-		"ratio":     func(f float64) string { return strconv.FormatFloat(f, 'f', 2, 64) },
-		"ts":        func(t time.Time) string { return t.Format(time.DateTime) },
-		"dur":       func(d time.Duration) string { return d.Round(time.Millisecond).String() },
-		"query":     url.QueryEscape,
-		"inc":       func(i int) int { return i + 1 },
-		"isZero":    func(t time.Time) bool { return t.IsZero() },
-		"row":       func(i, v any) map[string]any { return map[string]any{"I": i, "V": v} },
-		"joinList":  joinList,
-		"sdur":      shortDuration,
-		"envref":    func(s string) bool { return strings.Contains(s, "${") },
-		"list4":     func(a, b, c, d string) []string { return []string{a, b, c, d} },
-		"hasPrefix": strings.HasPrefix,
+		"bytes":        humanBytes,
+		"short":        func(h string) string { return h[:min(8, len(h))] },
+		"pct":          func(f float64) string { return fmt.Sprintf("%.0f%%", f*100) },
+		"since":        func(t time.Time) string { return since(t) },
+		"url":          func(p string) string { return base + strings.TrimPrefix(p, "/") },
+		"cell":         cellLabel,
+		"lower":        strings.ToLower,
+		"ratio":        func(f float64) string { return strconv.FormatFloat(f, 'f', 2, 64) },
+		"ts":           func(t time.Time) string { return t.Format(time.DateTime) },
+		"dur":          func(d time.Duration) string { return d.Round(time.Millisecond).String() },
+		"query":        url.QueryEscape,
+		"inc":          func(i int) int { return i + 1 },
+		"isZero":       func(t time.Time) bool { return t.IsZero() },
+		"row":          func(i, v any) map[string]any { return map[string]any{"I": i, "V": v} },
+		"joinList":     joinList,
+		"sdur":         shortDuration,
+		"envref":       func(s string) bool { return strings.Contains(s, "${") },
+		"list4":        func(a, b, c, d string) []string { return []string{a, b, c, d} },
+		"hasPrefix":    strings.HasPrefix,
+		"notifyEvents": func() []string { return config.NotificationEvents },
+		"eventLabel":   func(k string) string { return eventLabels[k] },
 	}
 	for _, page := range []string{"dashboard", "torrents", "plan", "events", "history", "config", "configyaml"} {
 		t, err := template.New("layout.html").Funcs(funcs).ParseFS(templateFS, "templates/layout.html", "templates/partials.html", "templates/"+page+".html")
@@ -105,6 +108,7 @@ func newServer(svc *app.Service, logger *slog.Logger) (*Server, error) {
 	mux.HandleFunc("GET /config/yaml", s.configYAMLPage)
 	mux.HandleFunc("POST /config/form", s.configFormSave)
 	mux.HandleFunc("POST /config/test-instance", s.configTestInstance)
+	mux.HandleFunc("POST /config/test-notification", s.configTestNotification)
 
 	mux.HandleFunc("GET /api/v1/status", s.apiStatus)
 	mux.HandleFunc("GET /api/v1/torrents", s.apiTorrents)
@@ -114,6 +118,8 @@ func newServer(svc *app.Service, logger *slog.Logger) (*Server, error) {
 	mux.HandleFunc("GET /api/v1/config", s.apiConfig)
 	mux.HandleFunc("GET /api/v1/config/raw", s.apiConfigRaw)
 	mux.HandleFunc("POST /api/v1/instances/test", s.apiTestInstance)
+	mux.HandleFunc("GET /api/v1/notifications", s.apiNotifications)
+	mux.HandleFunc("POST /api/v1/notifications/test", s.apiTestNotification)
 	mux.HandleFunc("PUT /api/v1/config/raw", s.apiConfigSave)
 	mux.HandleFunc("POST /api/v1/sync", s.apiSync)
 	mux.HandleFunc("POST /api/v1/replicate", s.apiReplicate)

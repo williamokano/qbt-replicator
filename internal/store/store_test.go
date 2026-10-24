@@ -152,6 +152,15 @@ func TestOutbox(t *testing.T) {
 	if counts[OutboxSent] != 1 || counts[OutboxFailed] != 1 || counts[OutboxPending] != 0 {
 		t.Fatalf("counts = %v", counts)
 	}
+	if err := s.DropPending(ctx, []string{"tg", "other"}); err != nil {
+		t.Fatal(err)
+	}
+	if due, _ := s.Due(ctx, "hook", now, 10); len(due) != 0 {
+		t.Fatalf("pending items of a removed notifier kept: %+v", due)
+	}
+	if err := s.DropPending(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestPrune(t *testing.T) {

@@ -38,6 +38,17 @@ and applies immediately. Saving from the form rewrites the file without comments
 </fieldset>
 
 <fieldset>
+  <legend>Notifications</legend>
+  <p class="muted small">Get told when replicas are added or removed, actions fail or instances go down.
+    Telegram uses your own bot (<a href="{{$.DocsURL}}#notifications" target="_blank" rel="noopener">setup ↗</a>); a webhook receives JSON.
+    Use <strong>Test</strong> to send a message with the values as typed.</p>
+  <div id="notif-rows">
+    {{range $i, $n := .Notifications}}{{template "notifrow" (row $i $n)}}{{end}}
+  </div>
+  <button type="button" class="secondary" data-add="notif">+ Add notification</button>
+</fieldset>
+
+<fieldset>
   <legend>Daemon</legend>
   <div class="grid">
     <label>Poll interval
@@ -70,8 +81,9 @@ and applies immediately. Saving from the form rewrites the file without comments
 </fieldset>
 
 <fieldset>
-  <legend>Web UI login</legend>
+  <legend>Web UI</legend>
   <div class="grid">
+    <label class="wide">Public URL <input name="public_url" value="{{.Server.PublicURL}}" placeholder="https://replicator.example.org"><small>How you open this UI; used for links in notifications. Empty = no links.</small></label>
     <label>Username <input name="auth_username" value="{{.Server.Auth.Username}}" autocomplete="off"><small>Empty = no login.</small></label>
     <label>Password <input name="auth_password" type="password" autocomplete="new-password" placeholder="{{if .Server.Auth.Password}}unchanged{{end}}"><small>Leave empty to keep the current one.</small></label>
   </div>
@@ -87,6 +99,7 @@ and applies immediately. Saving from the form rewrites the file without comments
 
 <template id="tpl-inst">{{template "instrow" (row "__i__" .BlankInstance)}}</template>
 <template id="tpl-rule">{{template "rulerow" (row "__i__" .BlankRule)}}</template>
+<template id="tpl-notif">{{template "notifrow" (row "__i__" .BlankNotification)}}</template>
 <script src="{{url "static/configform.js"}}"></script>
 {{end}}
 
@@ -165,5 +178,50 @@ and applies immediately. Saving from the form rewrites the file without comments
     <label class="check"><input type="checkbox" name="rule-{{$i}}-sync_share_limits" {{if .SyncShareLimits}}checked{{end}}> Copy ratio/seeding-time limits from the source</label>
   </details>
   <button type="button" class="link small" data-remove>remove rule</button>
+</div>
+{{end}}{{end}}
+
+{{define "notifrow"}}{{$i := .I}}{{with .V}}
+<div class="row card" data-row>
+  <input type="hidden" name="notif-{{$i}}-orig" value="{{.Name}}">
+  <div class="grid">
+    <label>Name <input name="notif-{{$i}}-name" value="{{.Name}}" placeholder="telegram"></label>
+    <label>Type
+      <select name="notif-{{$i}}-type" data-auth-select>
+        <option value="telegram" {{if eq .Type "telegram"}}selected{{end}}>Telegram</option>
+        <option value="webhook" {{if eq .Type "webhook"}}selected{{end}}>Webhook (JSON)</option>
+      </select></label>
+    <label data-auth="telegram" {{if ne .Type "telegram"}}hidden{{end}}>Bot token
+      {{if envref .BotToken}}<input name="notif-{{$i}}-bot_token" value="{{.BotToken}}">
+      {{else}}<input name="notif-{{$i}}-bot_token" type="password" autocomplete="off" placeholder="{{if or .BotToken .BotTokenFile}}unchanged{{else}}123456:ABC…{{end}}">{{end}}
+      <small>From @BotFather. Empty keeps the saved one.</small></label>
+    <label data-auth="telegram" {{if ne .Type "telegram"}}hidden{{end}}>Chat ID
+      <input name="notif-{{$i}}-chat_id" value="{{.ChatID}}" placeholder="123456789 or -100…">
+      <small>Your user ID, a group or a channel (@name).</small></label>
+    <label data-auth="telegram" {{if ne .Type "telegram"}}hidden{{end}}>Topic ID
+      <input name="notif-{{$i}}-thread_id" type="number" min="0" value="{{if .ThreadID}}{{.ThreadID}}{{end}}" placeholder="optional">
+      <small>Forum topic in a supergroup.</small></label>
+    <label class="wide" data-auth="webhook" {{if ne .Type "webhook"}}hidden{{end}}>URL
+      <input name="notif-{{$i}}-url" value="{{.URL}}" placeholder="https://example.org/hooks/qbt"></label>
+    <label data-auth="webhook" {{if ne .Type "webhook"}}hidden{{end}}>Bearer token
+      {{if envref .Token}}<input name="notif-{{$i}}-token" value="{{.Token}}">
+      {{else}}<input name="notif-{{$i}}-token" type="password" autocomplete="off" placeholder="{{if or .Token .TokenFile}}unchanged{{else}}optional{{end}}">{{end}}
+      <small>Sent as <code>Authorization: Bearer …</code>.</small></label>
+    <label>Digest <input name="notif-{{$i}}-digest" value="{{sdur .Digest}}" placeholder="30s">
+      <small>Batch messages arriving within this window (0s = send each at once).</small></label>
+    <label>Daily summary <input name="notif-{{$i}}-daily_summary" type="time" value="{{.DailySummary}}">
+      <small>Empty = no summary.</small></label>
+  </div>
+  <div class="checks">
+    <span class="small muted">Send:</span>
+    {{$n := .}}{{range notifyEvents}}<label class="check"><input type="checkbox" name="notif-{{$i}}-ev-{{.}}" {{if $n.Wants .}}checked{{end}}> {{eventLabel .}}</label>{{end}}
+  </div>
+  <label class="check"><input type="checkbox" name="notif-{{$i}}-enabled" {{if .Enabled}}checked{{end}}> Enabled</label>
+  <label class="check" data-auth="telegram" {{if ne .Type "telegram"}}hidden{{end}}><input type="checkbox" name="notif-{{$i}}-silent" {{if .Silent}}checked{{end}}> Silent: no sound for informational messages (failures still ring)</label>
+  <div class="row-actions">
+    <button type="button" class="secondary" data-test data-test-url="{{url "config/test-notification"}}" title="Send a test message with the values as typed (nothing is saved)">Test</button>
+    <span class="test-result" role="status" aria-live="polite"></span>
+    <button type="button" class="link small" data-remove>remove notification</button>
+  </div>
 </div>
 {{end}}{{end}}

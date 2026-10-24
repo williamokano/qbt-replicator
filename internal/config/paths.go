@@ -60,3 +60,27 @@ func (in InstanceConfig) Resolve() (InstanceConfig, error) {
 	}
 	return in, nil
 }
+
+// Resolve returns a copy ready to use: ${VAR} references expanded and token
+// files read. Used to test notifiers that are not saved yet.
+func (n NotificationConfig) Resolve() (NotificationConfig, error) {
+	n.BotToken = os.ExpandEnv(n.BotToken)
+	n.ChatID = os.ExpandEnv(n.ChatID)
+	n.URL = os.ExpandEnv(n.URL)
+	n.Token = os.ExpandEnv(n.Token)
+	for _, f := range []struct {
+		key  string
+		path string
+		dst  *string
+	}{{"bot_token_file", n.BotTokenFile, &n.BotToken}, {"token_file", n.TokenFile, &n.Token}} {
+		if f.path == "" {
+			continue
+		}
+		b, err := os.ReadFile(f.path)
+		if err != nil {
+			return n, fmt.Errorf("reading %s: %w", f.key, err)
+		}
+		*f.dst = strings.TrimSpace(string(b))
+	}
+	return n, nil
+}

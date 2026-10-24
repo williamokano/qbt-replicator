@@ -10,6 +10,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -34,6 +35,8 @@ type Config struct {
 	Instances []InstanceConfig `mapstructure:"instances" json:"instances" yaml:"instances"`
 	Rules     []RuleConfig     `mapstructure:"rules" json:"rules" yaml:"rules"`
 	Database  DatabaseConfig   `mapstructure:"database" json:"database" yaml:"database"`
+	// Notifications lists where to send notifications (Telegram, webhooks).
+	Notifications []NotificationConfig `mapstructure:"notifications" json:"notifications" yaml:"notifications"`
 
 	// Path is the file the configuration was loaded from (not part of YAML).
 	Path string `mapstructure:"-" json:"-" yaml:"-"`
@@ -50,6 +53,9 @@ type ServerConfig struct {
 	Listen   string     `mapstructure:"listen" json:"listen" yaml:"listen"`
 	BasePath string     `mapstructure:"base_path" json:"base_path" yaml:"base_path"`
 	Auth     AuthConfig `mapstructure:"auth" json:"auth" yaml:"auth"`
+	// PublicURL is how users reach the web UI (e.g. https://replicator.example.org),
+	// used for links in notifications. Empty: no links.
+	PublicURL string `mapstructure:"public_url" json:"public_url" yaml:"public_url"`
 }
 
 // AuthConfig enables HTTP basic auth on the web UI/API when both fields are set.
@@ -205,6 +211,60 @@ type AddConfig struct {
 	Start        bool     `mapstructure:"start" json:"start" yaml:"start"`
 }
 
+// Notification types.
+const (
+	NotifyTelegram = "telegram"
+	NotifyWebhook  = "webhook"
+)
+
+// Notification kinds a notifier can subscribe to.
+const (
+	EventReplicaAdded   = "replica_added"
+	EventReplicaRemoved = "replica_removed"
+	EventActionFailed   = "action_failed"
+	EventInstanceDown   = "instance_down"
+	EventInstanceUp     = "instance_up"
+)
+
+// NotificationEvents lists every subscribable kind (also the default).
+var NotificationEvents = []string{EventReplicaAdded, EventReplicaRemoved, EventActionFailed, EventInstanceDown, EventInstanceUp}
+
+// NotificationConfig is one notification destination.
+type NotificationConfig struct {
+	Name    string `mapstructure:"name" json:"name" yaml:"name"`
+	Type    string `mapstructure:"type" json:"type" yaml:"type"` // telegram | webhook
+	Enabled bool   `mapstructure:"enabled" json:"enabled" yaml:"enabled"`
+	// Events to send; empty means all of NotificationEvents.
+	Events []string `mapstructure:"events" json:"events" yaml:"events"`
+	// Digest batches notifications for this long into one message (0 = send at once).
+	Digest time.Duration `mapstructure:"digest" json:"digest" yaml:"digest"`
+	// DailySummary sends a summary every day at this local time ("HH:MM"); empty = off.
+	DailySummary string `mapstructure:"daily_summary" json:"daily_summary" yaml:"daily_summary"`
+
+	// Telegram.
+	BotToken     string `mapstructure:"bot_token" json:"bot_token" yaml:"bot_token"`
+	BotTokenFile string `mapstructure:"bot_token_file" json:"bot_token_file" yaml:"bot_token_file"`
+	ChatID       string `mapstructure:"chat_id" json:"chat_id" yaml:"chat_id"`
+	// ThreadID posts into a forum topic of a supergroup.
+	ThreadID int64 `mapstructure:"thread_id" json:"thread_id" yaml:"thread_id"`
+	// Silent delivers informational messages without sound (failures still ring).
+	Silent bool   `mapstructure:"silent" json:"silent" yaml:"silent"`
+	APIURL string `mapstructure:"api_url" json:"api_url" yaml:"api_url"`
+
+	// Webhook.
+	URL       string `mapstructure:"url" json:"url" yaml:"url"`
+	Token     string `mapstructure:"token" json:"token" yaml:"token"`
+	TokenFile string `mapstructure:"token_file" json:"token_file" yaml:"token_file"`
+}
+
+// Wants reports whether the notifier subscribes to an event kind.
+func (n NotificationConfig) Wants(kind string) bool {
+	if len(n.Events) == 0 {
+		return slices.Contains(NotificationEvents, kind)
+	}
+	return slices.Contains(n.Events, kind)
+}
+
 // CategoryInherit makes replicas use the source torrent's category.
 const CategoryInherit = "inherit"
 
@@ -355,6 +415,23 @@ func applyRuleDefaults(v *viper.Viper, cfg *Config) {
 			r.FollowRelocation = true
 		}
 	}
+	rawN, _ := v.Get("notifications").([]any)
+	for i := range cfg.Notifications {
+		n := &cfg.Notifications[i]
+		var m map[string]any
+		if i < len(rawN) {
+			m, _ = rawN[i].(map[string]any)
+		}
+		if _, ok := m["enabled"]; !ok {
+			n.Enabled = true
+		}
+		if _, ok := m["digest"]; !ok {
+			n.Digest = 30 * time.Second
+		}
+		if n.Name == "" {
+			n.Name = n.Type
+		}
+	}
 	for i := range cfg.Instances {
 		if cfg.Instances[i].Timeout == 0 {
 			cfg.Instances[i].Timeout = 15 * time.Second
@@ -363,6 +440,23 @@ func applyRuleDefaults(v *viper.Viper, cfg *Config) {
 }
 
 func (c *Config) loadSecrets() error {
+	for i := range c.Notifications {
+		n := &c.Notifications[i]
+		for _, f := range []struct {
+			key  string
+			path string
+			dst  *string
+		}{{"bot_token_file", n.BotTokenFile, &n.BotToken}, {"token_file", n.TokenFile, &n.Token}} {
+			if f.path == "" {
+				continue
+			}
+			b, err := os.ReadFile(f.path)
+			if err != nil {
+				return fmt.Errorf("notification %q: reading %s: %w", n.Name, f.key, err)
+			}
+			*f.dst = strings.TrimSpace(string(b))
+		}
+	}
 	for i := range c.Instances {
 		in := &c.Instances[i]
 		for _, f := range []struct {
@@ -425,6 +519,12 @@ func (c *Config) Validate() error {
 	if u := c.Database.URL; u != "" && u != "memory" && !strings.HasPrefix(u, "sqlite://") {
 		errs = append(errs, fmt.Errorf("database.url %q: expected sqlite:///path/to/file.db or memory", u))
 	}
+	if u := c.Server.PublicURL; u != "" {
+		if p, err := url.Parse(u); err != nil || (p.Scheme != "http" && p.Scheme != "https") || p.Host == "" {
+			errs = append(errs, fmt.Errorf("server.public_url %q must be an absolute http(s) URL", u))
+		}
+	}
+	errs = append(errs, c.ValidateNotifications()...)
 	if !strings.HasPrefix(c.Server.BasePath, "/") {
 		errs = append(errs, errors.New("server.base_path must start with /"))
 	}
@@ -518,6 +618,56 @@ func (c *Config) Validate() error {
 	return errors.Join(errs...)
 }
 
+// ValidateNotifications checks the notifications section.
+func (c *Config) ValidateNotifications() []error {
+	var errs []error
+	names := map[string]bool{}
+	for i, n := range c.Notifications {
+		label := fmt.Sprintf("notifications[%d]", i)
+		if n.Name != "" {
+			label = fmt.Sprintf("notification %q", n.Name)
+		}
+		if names[n.Name] {
+			errs = append(errs, fmt.Errorf("%s: duplicate name (give each notification a unique name)", label))
+		}
+		names[n.Name] = true
+		switch n.Type {
+		case NotifyTelegram:
+			if n.BotToken == "" {
+				errs = append(errs, fmt.Errorf("%s: bot_token is required (from @BotFather)", label))
+			}
+			if n.ChatID == "" {
+				errs = append(errs, fmt.Errorf("%s: chat_id is required", label))
+			}
+			if n.APIURL != "" {
+				if u, err := url.Parse(n.APIURL); err != nil || u.Host == "" {
+					errs = append(errs, fmt.Errorf("%s: api_url %q is not a URL", label, n.APIURL))
+				}
+			}
+		case NotifyWebhook:
+			if u, err := url.Parse(n.URL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+				errs = append(errs, fmt.Errorf("%s: url %q must be an absolute http(s) URL", label, n.URL))
+			}
+		default:
+			errs = append(errs, fmt.Errorf("%s: type %q is invalid (telegram|webhook)", label, n.Type))
+		}
+		for _, e := range n.Events {
+			if !slices.Contains(NotificationEvents, e) {
+				errs = append(errs, fmt.Errorf("%s: unknown event %q (one of %s)", label, e, strings.Join(NotificationEvents, ", ")))
+			}
+		}
+		if n.Digest < 0 {
+			errs = append(errs, fmt.Errorf("%s: digest must be >= 0", label))
+		}
+		if n.DailySummary != "" {
+			if _, err := time.Parse("15:04", n.DailySummary); err != nil {
+				errs = append(errs, fmt.Errorf("%s: daily_summary %q must be a time like 09:00", label, n.DailySummary))
+			}
+		}
+	}
+	return errs
+}
+
 // Configured reports whether any instance is defined (false = setup mode).
 func (c *Config) Configured() bool { return len(c.Instances) > 0 }
 
@@ -582,6 +732,16 @@ func (c *Config) Redacted() Config {
 	}
 	if out.Server.Auth.Password != "" {
 		out.Server.Auth.Password = "********"
+	}
+	out.Notifications = make([]NotificationConfig, len(c.Notifications))
+	for i, n := range c.Notifications {
+		if n.BotToken != "" {
+			n.BotToken = "********"
+		}
+		if n.Token != "" {
+			n.Token = "********"
+		}
+		out.Notifications[i] = n
 	}
 	return out
 }
