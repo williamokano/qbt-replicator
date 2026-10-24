@@ -229,3 +229,34 @@ func TestDocumentedExamplesParse(t *testing.T) {
 		t.Fatalf("config.example.yaml invalid: %v", err)
 	}
 }
+
+func TestDatabase(t *testing.T) {
+	cfg, err := Parse([]byte("database: {retention: 30d}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Database.RetentionDur != 30*24*time.Hour {
+		t.Errorf("retention = %s", cfg.Database.RetentionDur)
+	}
+	if got := cfg.DatabaseURL(); got != "memory" {
+		t.Errorf("url without config path = %q", got)
+	}
+	cfg.Path = "/config/config.yaml"
+	if got := cfg.DatabaseURL(); got != "sqlite:///config/qbt-replicator.db" {
+		t.Errorf("default url = %q", got)
+	}
+	def, _ := Parse(nil)
+	if def.Database.RetentionDur != 90*24*time.Hour {
+		t.Errorf("default retention = %s", def.Database.RetentionDur)
+	}
+	for _, bad := range []string{"database: {retention: 3x}", "database: {retention: -1h}", "database: {url: postgres://x}"} {
+		if _, err := Parse([]byte(bad)); err == nil {
+			t.Errorf("%s: expected error", bad)
+		}
+	}
+	for in, want := range map[string]time.Duration{"0": 0, "12h": 12 * time.Hour, "1d": 24 * time.Hour} {
+		if d, err := ParseDays(in); err != nil || d != want {
+			t.Errorf("ParseDays(%q) = %s, %v", in, d, err)
+		}
+	}
+}

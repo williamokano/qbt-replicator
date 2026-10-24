@@ -33,6 +33,7 @@ type Config struct {
 	Daemon    DaemonConfig     `mapstructure:"daemon" json:"daemon" yaml:"daemon"`
 	Instances []InstanceConfig `mapstructure:"instances" json:"instances" yaml:"instances"`
 	Rules     []RuleConfig     `mapstructure:"rules" json:"rules" yaml:"rules"`
+	Database  DatabaseConfig   `mapstructure:"database" json:"database" yaml:"database"`
 
 	// Path is the file the configuration was loaded from (not part of YAML).
 	Path string `mapstructure:"-" json:"-" yaml:"-"`
@@ -77,6 +78,50 @@ type DaemonConfig struct {
 	// StateFile persists planner memory (orphan confirmations) across runs.
 	// Empty means "state.json" next to the config file; "none" disables it.
 	StateFile string `mapstructure:"state_file" json:"state_file" yaml:"state_file"`
+}
+
+// DatabaseConfig configures where history and planner state are stored.
+type DatabaseConfig struct {
+	// URL is sqlite:///path/to/file.db or "memory". Empty means
+	// qbt-replicator.db next to the config file.
+	URL string `mapstructure:"url" json:"url" yaml:"url"`
+	// Retention is how long history is kept, e.g. "90d", "720h"; "0" keeps it forever.
+	Retention string `mapstructure:"retention" json:"retention" yaml:"retention"`
+
+	// RetentionDur is Retention parsed during validation.
+	RetentionDur time.Duration `mapstructure:"-" json:"-" yaml:"-"`
+}
+
+// DatabaseURL resolves the database location.
+func (c *Config) DatabaseURL() string {
+	switch {
+	case c.Database.URL != "":
+		return c.Database.URL
+	case c.Path == "":
+		return "memory"
+	default:
+		return "sqlite://" + filepath.Join(filepath.Dir(c.Path), "qbt-replicator.db")
+	}
+}
+
+// ParseDays parses a Go duration that may also use a "d" (24h) suffix, e.g. "90d".
+func ParseDays(s string) (time.Duration, error) {
+	s = strings.TrimSpace(s)
+	if s == "0" {
+		return 0, nil
+	}
+	if n, ok := strings.CutSuffix(s, "d"); ok {
+		var days int
+		if _, err := fmt.Sscanf(n, "%d", &days); err != nil || days < 0 || fmt.Sprint(days) != n {
+			return 0, fmt.Errorf("%q is not a number of days", s)
+		}
+		return time.Duration(days) * 24 * time.Hour, nil
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 0, fmt.Errorf("%q is not a duration (examples: 90d, 720h)", s)
+	}
+	return d, nil
 }
 
 // StatePath resolves the planner state file ("" when disabled).
@@ -176,6 +221,8 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("daemon.orphan_grace_ticks", 2)
 	v.SetDefault("daemon.orphan_grace_period", "1m")
 	v.SetDefault("daemon.exclude_tag", "qbtr-exclude")
+	v.SetDefault("database.url", "")
+	v.SetDefault("database.retention", "90d")
 }
 
 // ResolvePath picks the configuration path: explicit flag, then $QBTR_CONFIG,
@@ -366,6 +413,17 @@ func (c *Config) Validate() error {
 	}
 	if c.Daemon.OrphanGraceTicks < 1 {
 		errs = append(errs, errors.New("daemon.orphan_grace_ticks must be >= 1"))
+	}
+	switch d, err := ParseDays(c.Database.Retention); {
+	case err != nil:
+		errs = append(errs, fmt.Errorf("database.retention: %w", err))
+	case d < 0:
+		errs = append(errs, errors.New("database.retention must be >= 0"))
+	default:
+		c.Database.RetentionDur = d
+	}
+	if u := c.Database.URL; u != "" && u != "memory" && !strings.HasPrefix(u, "sqlite://") {
+		errs = append(errs, fmt.Errorf("database.url %q: expected sqlite:///path/to/file.db or memory", u))
 	}
 	if !strings.HasPrefix(c.Server.BasePath, "/") {
 		errs = append(errs, errors.New("server.base_path must start with /"))

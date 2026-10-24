@@ -74,11 +74,57 @@ type Memory struct {
 	Rechecks map[string]bool `json:"rechecks"`
 	// OrphanSince records when a replica was first seen orphaned.
 	OrphanSince map[string]time.Time `json:"orphan_since,omitempty"`
+	// Failures backs off adds that keep failing (key target|hash).
+	Failures map[string]Failure `json:"failures,omitempty"`
+}
+
+// Failure tracks consecutive failed add/readd attempts of one torrent on one target.
+type Failure struct {
+	Count int       `json:"count"`
+	Until time.Time `json:"until"` // no new attempt before this
+	Error string    `json:"error,omitempty"`
+}
+
+// Retry backoff after a failed add: 30s, 1m, 2m, … capped at 1h.
+const (
+	retryBase = 30 * time.Second
+	retryMax  = time.Hour
+)
+
+func retryDelay(count int) time.Duration {
+	d := retryBase
+	for i := 1; i < count && d < retryMax; i++ {
+		d *= 2
+	}
+	return min(d, retryMax)
 }
 
 // NewMemory returns empty planner memory.
 func NewMemory() *Memory {
-	return &Memory{Orphans: map[string]int{}, Rechecks: map[string]bool{}, OrphanSince: map[string]time.Time{}}
+	return &Memory{Orphans: map[string]int{}, Rechecks: map[string]bool{}, OrphanSince: map[string]time.Time{},
+		Failures: map[string]Failure{}}
+}
+
+// RecordResults updates failure backoff from executed results (not dry runs):
+// a failed add/readd delays the next attempt, a successful one clears it.
+func (m *Memory) RecordResults(results []Result, now time.Time) {
+	if m.Failures == nil {
+		m.Failures = map[string]Failure{}
+	}
+	for _, r := range results {
+		if r.DryRun || (r.Action.Type != ActionAdd && r.Action.Type != ActionReadd) {
+			continue
+		}
+		key := r.Action.key()
+		if r.Error == "" {
+			delete(m.Failures, key)
+			continue
+		}
+		f := m.Failures[key]
+		f.Count++
+		f.Until, f.Error = now.Add(retryDelay(f.Count)), r.Error
+		m.Failures[key] = f
+	}
 }
 
 func (m *Memory) clone() *Memory {
@@ -91,6 +137,9 @@ func (m *Memory) clone() *Memory {
 	}
 	for k, v := range m.OrphanSince {
 		out.OrphanSince[k] = v
+	}
+	for k, v := range m.Failures {
+		out.Failures[k] = v
 	}
 	return out
 }
@@ -129,6 +178,21 @@ func Compute(cfg *config.Config, snap *Snapshot, mem *Memory, now time.Time) *Pl
 		if !seen[a.key()] {
 			seen[a.key()] = true
 			p.Actions = append(p.Actions, a)
+		}
+	}
+
+	// backingOff reports (and explains) a target|hash whose last add failed recently.
+	backingOff := func(key string) (string, bool) {
+		f, ok := mem.Failures[key]
+		if !ok || !now.Before(f.Until) {
+			return "", false
+		}
+		return fmt.Sprintf("failed %d time(s), next attempt at %s: %s", f.Count, f.Until.Format("15:04:05"), f.Error), true
+	}
+	// Forget failures that have not been retried for a day (torrent gone, rule changed).
+	for k, f := range p.Memory.Failures {
+		if now.Sub(f.Until) > 24*time.Hour {
+			delete(p.Memory.Failures, k)
 		}
 	}
 
@@ -177,6 +241,10 @@ func Compute(cfg *config.Config, snap *Snapshot, mem *Memory, now time.Time) *Pl
 						if !existing.HasTag(tag) {
 							skip(tgtName, "already on "+tgtName+" as a normal torrent (added outside qbt-replicator)")
 						}
+						continue
+					}
+					if why, wait := backingOff(tgtName + "|" + h); wait {
+						skip(tgtName, why)
 						continue
 					}
 					tgtCfg, _ := cfg.Instance(tgtName)
@@ -258,6 +326,10 @@ func Compute(cfg *config.Config, snap *Snapshot, mem *Memory, now time.Time) *Pl
 			if rule.FollowRelocation && settled {
 				want := tgtCfg.FromCanonical(srcCfg.ToCanonical(t.SavePath))
 				if !config.SamePath(want, r.SavePath) {
+					if why, wait := backingOff(key); wait {
+						p.Notes = append(p.Notes, fmt.Sprintf("relocating %s on %s: %s", r.Name, tgtName, why))
+						continue
+					}
 					a := addAction(ActionReadd, cfg, rule, srcCfg, tgtCfg, t,
 						fmt.Sprintf("source moved to %s (replica at %s)", t.SavePath, r.SavePath))
 					push(a)

@@ -4,6 +4,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"slices"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/williamokano/qbt-replicator/internal/config"
 	"github.com/williamokano/qbt-replicator/internal/events"
 	"github.com/williamokano/qbt-replicator/internal/replicator"
+	"github.com/williamokano/qbt-replicator/internal/store"
 	"github.com/williamokano/qbt-replicator/internal/version"
 )
 
@@ -24,24 +26,54 @@ type Service struct {
 	engine  *replicator.Engine
 	events  *events.Log
 	metrics *replicator.Metrics
+	store   *store.Store
+	logger  *slog.Logger
 	reload  chan struct{}
 	started time.Time
 }
 
-// New builds a Service from configuration.
+// New builds a Service from configuration and opens the database. Call Close
+// when done.
 func New(cfg *config.Config, logger *slog.Logger) (*Service, error) {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	st, err := store.Open(context.Background(), cfg.DatabaseURL())
+	if err != nil {
+		return nil, fmt.Errorf("database: %w", err)
+	}
 	s := &Service{
 		events:  events.New(500, logger),
 		metrics: replicator.NewMetrics(),
+		store:   st,
+		logger:  logger,
 		reload:  make(chan struct{}, 1),
 		started: time.Now(),
 	}
-	eng, err := replicator.NewEngine(cfg, s.events, s.metrics)
+	s.events.AddSink(s.persistEvent)
+	eng, err := replicator.NewEngine(cfg, s.events, s.metrics, st)
 	if err != nil {
+		_ = st.Close()
 		return nil, err
 	}
 	s.engine = eng
 	return s, nil
+}
+
+// Close releases the database.
+func (s *Service) Close() error { return s.store.Close() }
+
+// Store returns the database (history, outbox).
+func (s *Service) Store() *store.Store { return s.store }
+
+// persistEvent copies an activity log entry into the database. Failures are
+// only logged (never added to the activity log, which would recurse).
+func (s *Service) persistEvent(e events.Event) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := s.store.AddEvent(ctx, e); err != nil {
+		s.logger.Warn("saving event to the database failed", "error", err)
+	}
 }
 
 // Engine returns the current engine (daemon loop, metrics).
