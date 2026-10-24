@@ -8,6 +8,18 @@
     var m = /^(?:inst|rule)-(\d+)-/.exec(el.name);
     if (m) next = Math.max(next, parseInt(m[1], 10) + 1);
   });
+  // Show username/password or API key fields for the selected auth type.
+  function syncAuth(select) {
+    var row = select.closest("[data-row]");
+    row.querySelectorAll("[data-auth]").forEach(function (el) {
+      el.hidden = el.getAttribute("data-auth") !== select.value;
+    });
+  }
+  form.addEventListener("change", function (ev) {
+    if (ev.target.matches("[data-auth-select]")) syncAuth(ev.target);
+  });
+  form.querySelectorAll("[data-auth-select]").forEach(syncAuth);
+
   form.addEventListener("click", function (ev) {
     var add = ev.target.closest("[data-add]");
     if (add) {

@@ -204,3 +204,43 @@ func TestShortDuration(t *testing.T) {
 		}
 	}
 }
+
+func TestConfigFormAPIKey(t *testing.T) {
+	h, svc, path := setupFile(t, editable)
+	v := baseForm()
+	v.Set("inst-0-auth", "apikey")
+	v.Set("inst-0-api_key", "")
+	if rec := formPost(h, v); rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "enter the API key") {
+		t.Fatalf("missing key not reported: %d", rec.Code)
+	}
+	v.Set("inst-0-api_key", "qbt_new")
+	if rec := formPost(h, v); rec.Code != http.StatusSeeOther {
+		t.Fatalf("save: %d %s", rec.Code, rec.Body.String())
+	}
+	in := svc.Config().Instances[0]
+	if in.APIKey != "qbt_new" || in.Username != "" || in.Password != "" {
+		t.Fatalf("api key not applied or password kept: %+v", in)
+	}
+	page := do(h, http.MethodGet, "/config", nil, nil).Body.String()
+	if strings.Contains(page, "qbt_new") || !strings.Contains(page, `value="apikey" selected`) {
+		t.Fatal("form must keep API key mode and never show the key")
+	}
+	// Saving again with the key field empty keeps the stored key.
+	v.Set("inst-0-api_key", "")
+	if rec := formPost(h, v); rec.Code != http.StatusSeeOther {
+		t.Fatalf("resave: %d %s", rec.Code, rec.Body.String())
+	}
+	if svc.Config().Instances[0].APIKey != "qbt_new" {
+		t.Fatal("stored api key lost")
+	}
+	// Switching back to username/password clears the key.
+	v.Set("inst-0-auth", "password")
+	v.Set("inst-0-password", "pw2")
+	if rec := formPost(h, v); rec.Code != http.StatusSeeOther {
+		t.Fatalf("switch back: %d", rec.Code)
+	}
+	disk, _ := os.ReadFile(path)
+	if strings.Contains(string(disk), "qbt_new") || svc.Config().Instances[0].Password != "pw2" {
+		t.Fatalf("switch back failed:\n%s", disk)
+	}
+}

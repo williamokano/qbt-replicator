@@ -34,6 +34,8 @@ instances:
     username: admin
     password: ${QBT1_PASSWORD}
     # password_file: /run/secrets/qbt1_password
+    # Or, on qBittorrent 5.2+, an API key (Options > WebUI) instead of username/password:
+    # api_key: ${QBT1_API_KEY}        # or api_key_file: /run/secrets/qbt1_api_key
     # insecure_skip_verify: false
     # timeout: 15s
     # Only needed if the containers mount the shared storage at different paths:

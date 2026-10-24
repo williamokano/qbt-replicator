@@ -96,11 +96,15 @@ func (c *Config) StatePath() string {
 
 // InstanceConfig describes one qBittorrent WebUI.
 type InstanceConfig struct {
-	Name               string        `mapstructure:"name" json:"name" yaml:"name"`
-	URL                string        `mapstructure:"url" json:"url" yaml:"url"`
-	Username           string        `mapstructure:"username" json:"username" yaml:"username"`
-	Password           string        `mapstructure:"password" json:"password" yaml:"password"`
-	PasswordFile       string        `mapstructure:"password_file" json:"password_file" yaml:"password_file"`
+	Name         string `mapstructure:"name" json:"name" yaml:"name"`
+	URL          string `mapstructure:"url" json:"url" yaml:"url"`
+	Username     string `mapstructure:"username" json:"username" yaml:"username"`
+	Password     string `mapstructure:"password" json:"password" yaml:"password"`
+	PasswordFile string `mapstructure:"password_file" json:"password_file" yaml:"password_file"`
+	// APIKey authenticates with a qBittorrent WebUI API key (Settings > WebUI,
+	// qBittorrent 5.2+) instead of username/password.
+	APIKey             string        `mapstructure:"api_key" json:"api_key" yaml:"api_key"`
+	APIKeyFile         string        `mapstructure:"api_key_file" json:"api_key_file" yaml:"api_key_file"`
 	InsecureSkipVerify bool          `mapstructure:"insecure_skip_verify" json:"insecure_skip_verify" yaml:"insecure_skip_verify"`
 	Timeout            time.Duration `mapstructure:"timeout" json:"timeout" yaml:"timeout"`
 	PathMappings       []PathMapping `mapstructure:"path_mappings" json:"path_mappings" yaml:"path_mappings"`
@@ -314,14 +318,20 @@ func applyRuleDefaults(v *viper.Viper, cfg *Config) {
 func (c *Config) loadSecrets() error {
 	for i := range c.Instances {
 		in := &c.Instances[i]
-		if in.PasswordFile == "" {
-			continue
+		for _, f := range []struct {
+			key  string
+			path string
+			dst  *string
+		}{{"password_file", in.PasswordFile, &in.Password}, {"api_key_file", in.APIKeyFile, &in.APIKey}} {
+			if f.path == "" {
+				continue
+			}
+			b, err := os.ReadFile(f.path)
+			if err != nil {
+				return fmt.Errorf("instance %q: reading %s: %w", in.Name, f.key, err)
+			}
+			*f.dst = strings.TrimSpace(string(b))
 		}
-		b, err := os.ReadFile(in.PasswordFile)
-		if err != nil {
-			return fmt.Errorf("instance %q: reading password_file: %w", in.Name, err)
-		}
-		in.Password = strings.TrimRight(string(b), "\r\n")
 	}
 	return nil
 }
@@ -382,6 +392,9 @@ func (c *Config) Validate() error {
 		u, err := url.Parse(in.URL)
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 			errs = append(errs, fmt.Errorf("instance %q: url %q must be an absolute http(s) URL", in.Name, in.URL))
+		}
+		if in.APIKey != "" && (in.Username != "" || in.Password != "") {
+			errs = append(errs, fmt.Errorf("instance %q: use either api_key or username/password, not both", in.Name))
 		}
 		for j, m := range in.PathMappings {
 			if !strings.HasPrefix(m.Instance, "/") || !strings.HasPrefix(m.Canonical, "/") {
@@ -503,6 +516,9 @@ func (c *Config) Redacted() Config {
 	for i, in := range c.Instances {
 		if in.Password != "" {
 			in.Password = "********"
+		}
+		if in.APIKey != "" {
+			in.APIKey = "********"
 		}
 		out.Instances[i] = in
 	}

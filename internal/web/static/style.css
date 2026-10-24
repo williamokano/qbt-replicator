@@ -66,6 +66,7 @@ nav.tabs a.active { color:var(--accent); border-bottom-color:var(--accent); }
 .cm-dark .cm-number { color:#79c0ff; } .cm-dark .cm-meta, .cm-dark .cm-def { color:#ffa657; } .cm-dark .cm-keyword { color:#ff7b72; }
 .cm-dark .CodeMirror-selected { background:#264f78 !important; }
 .cm-error-line { background:rgba(248,81,73,.18); }
+.cfgform [hidden] { display:none !important; }
 
 /* --- responsive --- */
 td { overflow-wrap:anywhere; }

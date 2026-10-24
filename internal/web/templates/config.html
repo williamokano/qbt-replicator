@@ -93,10 +93,21 @@ and applies immediately. Saving from the form rewrites the file without comments
   <div class="grid">
     <label>Name <input name="inst-{{$i}}-name" value="{{.Name}}" placeholder="qbt-1"></label>
     <label class="wide">WebUI URL <input name="inst-{{$i}}-url" value="{{.URL}}" placeholder="http://192.168.1.10:8080"></label>
-    <label>Username <input name="inst-{{$i}}-username" value="{{.Username}}" autocomplete="off"></label>
-    <label>Password
+    {{$key := or .APIKey .APIKeyFile}}
+    <label>Authentication
+      <select name="inst-{{$i}}-auth" data-auth-select>
+        <option value="password" {{if not $key}}selected{{end}}>Username &amp; password</option>
+        <option value="apikey" {{if $key}}selected{{end}}>API key</option>
+      </select>
+      <small>API keys need qBittorrent 5.2+ (WebUI settings).</small></label>
+    <label data-auth="password" {{if $key}}hidden{{end}}>Username <input name="inst-{{$i}}-username" value="{{.Username}}" autocomplete="off"></label>
+    <label data-auth="password" {{if $key}}hidden{{end}}>Password
       {{if envref .Password}}<input name="inst-{{$i}}-password" value="{{.Password}}">
       {{else}}<input name="inst-{{$i}}-password" type="password" autocomplete="new-password" placeholder="{{if .Password}}unchanged{{end}}">{{end}}
+      <small>Empty keeps the saved one. <code>${VAR}</code> reads the environment.</small></label>
+    <label data-auth="apikey" {{if not $key}}hidden{{end}}>API key
+      {{if envref .APIKey}}<input name="inst-{{$i}}-api_key" value="{{.APIKey}}">
+      {{else}}<input name="inst-{{$i}}-api_key" type="password" autocomplete="off" placeholder="{{if $key}}unchanged{{else}}qbt_…{{end}}">{{end}}
       <small>Empty keeps the saved one. <code>${VAR}</code> reads the environment.</small></label>
   </div>
   <details>
