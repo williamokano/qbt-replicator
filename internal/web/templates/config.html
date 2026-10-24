@@ -18,6 +18,26 @@ and applies immediately. Saving from the form rewrites the file without comments
 <form method="post" action="{{url "config/form"}}" class="cfgform" id="cfgform">
 
 <fieldset>
+  <legend>qBittorrent instances</legend>
+  <p class="muted small">All instances must see the downloads at the same path (or configure path mappings in Advanced).</p>
+  <div id="inst-rows">
+    {{range $i, $in := .Instances}}{{template "instrow" (row $i $in)}}{{end}}
+  </div>
+  <button type="button" class="secondary" data-add="inst">+ Add instance</button>
+</fieldset>
+
+<fieldset>
+  <legend>Rules</legend>
+  <p class="muted small">A rule replicates completed torrents from <em>sources</em> to <em>targets</em>.
+    Use instance names separated by commas, or <code>*</code> for all. Instances: {{range $.Names}}<code>{{.}}</code> {{end}}
+    · <a href="{{$.DocsURL}}#rule-recipes" target="_blank" rel="noopener">rule recipes ↗</a></p>
+  <div id="rule-rows">
+    {{range $i, $r := .Rules}}{{template "rulerow" (row $i $r)}}{{end}}
+  </div>
+  <button type="button" class="secondary" data-add="rule">+ Add rule</button>
+</fieldset>
+
+<fieldset>
   <legend>Daemon</legend>
   <div class="grid">
     <label>Poll interval
@@ -55,26 +75,6 @@ and applies immediately. Saving from the form rewrites the file without comments
   {{if .Server.Auth.Password}}<label class="check"><input type="checkbox" name="auth_clear"> Remove the password (disable login)</label>{{end}}
 </fieldset>
 
-<fieldset>
-  <legend>qBittorrent instances</legend>
-  <p class="muted small">All instances must see the downloads at the same path (or configure path mappings in Advanced).</p>
-  <div id="inst-rows">
-    {{range $i, $in := .Instances}}{{template "instrow" (row $i $in)}}{{end}}
-  </div>
-  <button type="button" class="secondary" data-add="inst">+ Add instance</button>
-</fieldset>
-
-<fieldset>
-  <legend>Rules</legend>
-  <p class="muted small">A rule replicates completed torrents from <em>sources</em> to <em>targets</em>.
-    Use instance names separated by commas, or <code>*</code> for all. Instances: {{range $.Names}}<code>{{.}}</code> {{end}}
-    · <a href="{{$.DocsURL}}#rule-recipes" target="_blank" rel="noopener">rule recipes ↗</a></p>
-  <div id="rule-rows">
-    {{range $i, $r := .Rules}}{{template "rulerow" (row $i $r)}}{{end}}
-  </div>
-  <button type="button" class="secondary" data-add="rule">+ Add rule</button>
-</fieldset>
-
 <div class="toolbar sticky">
   <button type="submit">Save &amp; apply</button>
   <a href="{{url "config"}}">Discard changes</a>
@@ -98,9 +98,14 @@ and applies immediately. Saving from the form rewrites the file without comments
       {{if envref .Password}}<input name="inst-{{$i}}-password" value="{{.Password}}">
       {{else}}<input name="inst-{{$i}}-password" type="password" autocomplete="new-password" placeholder="{{if .Password}}unchanged{{end}}">{{end}}
       <small>Empty keeps the saved one. <code>${VAR}</code> reads the environment.</small></label>
-    <label>Timeout <input name="inst-{{$i}}-timeout" value="{{if .Timeout}}{{sdur .Timeout}}{{end}}" placeholder="15s"></label>
   </div>
-  <label class="check"><input type="checkbox" name="inst-{{$i}}-insecure" {{if .InsecureSkipVerify}}checked{{end}}> Skip TLS verification</label>
+  <details>
+    <summary class="small">Connection options</summary>
+    <div class="grid">
+      <label>Timeout <input name="inst-{{$i}}-timeout" value="{{if .Timeout}}{{sdur .Timeout}}{{end}}" placeholder="15s"></label>
+    </div>
+    <label class="check"><input type="checkbox" name="inst-{{$i}}-insecure" {{if .InsecureSkipVerify}}checked{{end}}> Skip TLS verification (self-signed HTTPS)</label>
+  </details>
   <button type="button" class="link small" data-remove>remove instance</button>
 </div>
 {{end}}{{end}}
