@@ -72,11 +72,13 @@ func short(h string) string {
 type Memory struct {
 	Orphans  map[string]int  `json:"orphans"`
 	Rechecks map[string]bool `json:"rechecks"`
+	// OrphanSince records when a replica was first seen orphaned.
+	OrphanSince map[string]time.Time `json:"orphan_since,omitempty"`
 }
 
 // NewMemory returns empty planner memory.
 func NewMemory() *Memory {
-	return &Memory{Orphans: map[string]int{}, Rechecks: map[string]bool{}}
+	return &Memory{Orphans: map[string]int{}, Rechecks: map[string]bool{}, OrphanSince: map[string]time.Time{}}
 }
 
 func (m *Memory) clone() *Memory {
@@ -86,6 +88,9 @@ func (m *Memory) clone() *Memory {
 	}
 	for k, v := range m.Rechecks {
 		out.Rechecks[k] = v
+	}
+	for k, v := range m.OrphanSince {
+		out.OrphanSince[k] = v
 	}
 	return out
 }
@@ -184,6 +189,7 @@ func Compute(cfg *config.Config, snap *Snapshot, mem *Memory, now time.Time) *Pl
 	// 2. Maintain existing replicas.
 	allHealthy := snap.AllHealthy()
 	activeOrphans := map[string]int{}
+	activeSince := map[string]time.Time{}
 	for _, tgtName := range snap.Order {
 		tgt := snap.Instances[tgtName]
 		if tgt == nil || !tgt.Healthy {
@@ -207,11 +213,18 @@ func Compute(cfg *config.Config, snap *Snapshot, mem *Memory, now time.Time) *Pl
 				}
 				n := mem.Orphans[key] + 1
 				activeOrphans[key] = n
-				if n >= cfg.Daemon.OrphanGraceTicks {
+				since, ok := mem.OrphanSince[key]
+				if !ok || since.IsZero() {
+					since = now
+				}
+				activeSince[key] = since
+				waited := now.Sub(since)
+				if n >= cfg.Daemon.OrphanGraceTicks && waited >= cfg.Daemon.OrphanGracePeriod {
 					push(Action{Type: ActionRemove, Hash: h, Name: r.Name, Target: tgtName,
 						Reason: "source torrent no longer exists on any instance (files kept)"})
 				} else {
-					p.Notes = append(p.Notes, fmt.Sprintf("orphan %s on %s: confirmation %d/%d", r.Name, tgtName, n, cfg.Daemon.OrphanGraceTicks))
+					p.Notes = append(p.Notes, fmt.Sprintf("orphan %s on %s: confirmation %d/%d, orphaned for %s of %s",
+						r.Name, tgtName, n, cfg.Daemon.OrphanGraceTicks, waited.Round(time.Second), cfg.Daemon.OrphanGracePeriod))
 				}
 				continue
 			}
@@ -261,9 +274,13 @@ func Compute(cfg *config.Config, snap *Snapshot, mem *Memory, now time.Time) *Pl
 	// Orphans not seen this tick reset their counter; untouched counters survive unhealthy ticks.
 	if allHealthy {
 		p.Memory.Orphans = activeOrphans
+		p.Memory.OrphanSince = activeSince
 	} else {
 		for k, v := range activeOrphans {
 			p.Memory.Orphans[k] = v
+		}
+		for k, v := range activeSince {
+			p.Memory.OrphanSince[k] = v
 		}
 	}
 	return p
@@ -345,6 +362,18 @@ func Eligible(cfg *config.Config, rule config.RuleConfig, src *InstanceState, t 
 	}
 	if f.MinSizeBytes > 0 && size < f.MinSizeBytes {
 		return false, "smaller than filter.min_size"
+	}
+	if f.NameRE != nil && !f.NameRE.MatchString(t.Name) {
+		return false, "name does not match filter.name_regex"
+	}
+	if f.ExcludeNameRE != nil && f.ExcludeNameRE.MatchString(t.Name) {
+		return false, "name matches filter.exclude_name_regex"
+	}
+	if len(f.SavePaths) > 0 && !slices.ContainsFunc(f.SavePaths, func(p string) bool {
+		p = strings.TrimRight(p, "/")
+		return t.SavePath == p || strings.HasPrefix(t.SavePath, p+"/")
+	}) {
+		return false, fmt.Sprintf("save path %q is not under filter.save_paths", t.SavePath)
 	}
 	if f.MinRatio > 0 && t.Ratio < f.MinRatio {
 		return false, "ratio below filter.min_ratio"

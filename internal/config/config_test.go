@@ -28,7 +28,7 @@ func TestParseDefaultsAndEnvExpansion(t *testing.T) {
 	if cfg.Instances[0].Password != "s3cret" {
 		t.Errorf("password not expanded: %q", cfg.Instances[0].Password)
 	}
-	if cfg.Daemon.Interval != 30*time.Second || cfg.Daemon.Concurrency != 2 || cfg.Daemon.ReplicaTag != "qbtr-replica" {
+	if cfg.Daemon.Interval != 5*time.Second || cfg.Daemon.Concurrency != 2 || cfg.Daemon.ReplicaTag != "qbtr-replica" {
 		t.Errorf("daemon defaults wrong: %+v", cfg.Daemon)
 	}
 	if cfg.Server.Listen != ":8080" || cfg.Server.BasePath != "/" {
@@ -90,7 +90,7 @@ rules: [{sources: [c]}]`,
 		"no rules": `
 instances: [{name: a, url: "http://a"}, {name: b, url: "http://b"}]`,
 		"short interval": `
-daemon: {interval: 1s}
+daemon: {interval: 500ms}
 instances: [{name: a, url: "http://a"}, {name: b, url: "http://b"}]
 rules: [{sources: [a]}]`,
 		"bad size": `
@@ -200,5 +200,32 @@ func TestEnvExpansionIsYAMLSafe(t *testing.T) {
 	}
 	if cfg.Daemon.Interval != 45*time.Second {
 		t.Errorf("interval: %v", cfg.Daemon.Interval)
+	}
+}
+
+// The documented full example and the example file must stay valid.
+func TestDocumentedExamplesParse(t *testing.T) {
+	for _, k := range []string{"QBT1_PASSWORD", "QBT2_PASSWORD", "QBT3_PASSWORD", "QBTR_UI_PASSWORD"} {
+		t.Setenv(k, "x")
+	}
+	doc, err := os.ReadFile("../../docs/configuration.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, rest, ok := strings.Cut(string(doc), "## Full example")
+	if !ok {
+		t.Fatal("full example section missing")
+	}
+	_, block, _ := strings.Cut(rest, "```yaml\n")
+	block, _, _ = strings.Cut(block, "```")
+	cfg, err := Parse([]byte(block))
+	if err != nil {
+		t.Fatalf("documented example invalid: %v", err)
+	}
+	if cfg.Rules[0].Filter.ExcludeNameRE == nil || !cfg.Rules[0].Filter.ExcludeNameRE.MatchString("Show.Sample.mkv") {
+		t.Error("documented exclude_name_regex does not match a sample")
+	}
+	if _, err := Load("../../config.example.yaml"); err != nil {
+		t.Fatalf("config.example.yaml invalid: %v", err)
 	}
 }

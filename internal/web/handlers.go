@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/williamokano/qbt-replicator/internal/app"
+	"github.com/williamokano/qbt-replicator/internal/config"
 	"github.com/williamokano/qbt-replicator/internal/replicator"
 )
 
@@ -54,18 +55,35 @@ func (s *Server) eventsPage(w http.ResponseWriter, r *http.Request) {
 	s.render(w, r, "events", map[string]any{"Events": s.svc.Events(0)})
 }
 
+// DocsURL is the configuration reference linked from the UI.
+const DocsURL = "https://github.com/williamokano/qbt-replicator/blob/main/docs/configuration.md"
+
 func (s *Server) configPage(w http.ResponseWriter, r *http.Request) {
-	s.renderConfig(w, r, "", nil, http.StatusOK)
+	form, err := s.svc.RawConfigStruct()
+	s.renderConfigForm(w, r, form, err, nil, http.StatusOK)
 }
 
-// renderConfig shows the editor; content overrides the file (after a failed save).
-func (s *Server) renderConfig(w http.ResponseWriter, r *http.Request, content string, saveErr error, status int) {
-	cfg := s.svc.ConfigRedacted()
-	file, err := s.svc.RawConfig()
-	if content == "" {
-		content = file.Content
+// renderConfigForm shows the form editor for cfg (the file as written, or the
+// rejected submission after a failed save).
+func (s *Server) renderConfigForm(w http.ResponseWriter, r *http.Request, cfg *config.Config, loadErr, saveErr error, status int) {
+	data := map[string]any{
+		"DocsURL":       DocsURL,
+		"Path":          s.svc.Config().Path,
+		"Form":          cfg,
+		"Overrides":     config.EnvOverrides(),
+		"BlankInstance": config.InstanceConfig{},
+		"BlankRule": config.RuleConfig{
+			Targets: []string{config.Wildcard}, SettleDelay: 2 * time.Minute,
+			Add:           config.AddConfig{Category: config.CategoryInherit, SkipChecking: true, Start: true},
+			RemoveOrphans: true, FollowRelocation: true,
+		},
 	}
-	data := map[string]any{"Config": cfg, "File": file, "Content": content, "FileErr": err}
+	if cfg != nil {
+		data["Names"] = cfg.InstanceNames()
+	}
+	if loadErr != nil {
+		data["LoadErr"] = loadErr.Error()
+	}
 	if saveErr != nil {
 		data["SaveErr"] = saveErr.Error()
 	}
@@ -75,22 +93,63 @@ func (s *Server) renderConfig(w http.ResponseWriter, r *http.Request, content st
 	s.render(w, r, "config", data)
 }
 
+func (s *Server) configFormSave(w http.ResponseWriter, r *http.Request) {
+	base, err := s.svc.RawConfigStruct()
+	if err != nil {
+		s.renderConfigForm(w, r, nil, err, nil, http.StatusInternalServerError)
+		return
+	}
+	cfg, err := configFromForm(r, base)
+	if err == nil {
+		var res app.SaveResult
+		if res, err = s.svc.SaveConfigStruct(cfg); err == nil {
+			s.redirect(w, r, "/config", saveMessage(res), nil)
+			return
+		}
+	}
+	s.renderConfigForm(w, r, cfg, nil, err, http.StatusUnprocessableEntity)
+}
+
+func saveMessage(res app.SaveResult) string {
+	msg := "Configuration saved and applied."
+	if len(res.RestartRequired) > 0 {
+		msg += " Restart the container for: " + strings.Join(res.RestartRequired, ", ") + "."
+	}
+	return msg
+}
+
+func (s *Server) configYAMLPage(w http.ResponseWriter, r *http.Request) {
+	s.renderConfigYAML(w, r, "", nil, http.StatusOK)
+}
+
+// renderConfigYAML shows the advanced editor; content overrides the file (after a failed save).
+func (s *Server) renderConfigYAML(w http.ResponseWriter, r *http.Request, content string, saveErr error, status int) {
+	file, err := s.svc.RawConfig()
+	if content == "" {
+		content = file.Content
+	}
+	data := map[string]any{"DocsURL": DocsURL, "File": file, "Content": content, "FileErr": err}
+	if saveErr != nil {
+		data["SaveErr"] = saveErr.Error()
+	}
+	if status != http.StatusOK {
+		w.WriteHeader(status)
+	}
+	s.render(w, r, "configyaml", data)
+}
+
 func (s *Server) configSave(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		s.redirect(w, r, "/config", "", err)
+		s.redirect(w, r, "/config/yaml", "", err)
 		return
 	}
 	content := r.PostForm.Get("content")
 	res, err := s.svc.SaveConfig(content)
 	if err != nil {
-		s.renderConfig(w, r, content, err, http.StatusUnprocessableEntity)
+		s.renderConfigYAML(w, r, content, err, http.StatusUnprocessableEntity)
 		return
 	}
-	msg := "Configuration saved and applied."
-	if len(res.RestartRequired) > 0 {
-		msg += " Restart the container for: " + strings.Join(res.RestartRequired, ", ") + "."
-	}
-	s.redirect(w, r, "/config", msg, nil)
+	s.redirect(w, r, "/config/yaml", saveMessage(res), nil)
 }
 
 // --- HTML form actions ---

@@ -9,10 +9,12 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/spf13/viper"
+	"go.yaml.in/yaml/v3"
 )
 
 // DefaultPath is the configuration file location inside the Docker image.
@@ -67,6 +69,9 @@ type DaemonConfig struct {
 	ReplicaTag  string        `mapstructure:"replica_tag" json:"replica_tag" yaml:"replica_tag"`
 	// OrphanGraceTicks is how many consecutive ticks a replica must be orphaned before removal.
 	OrphanGraceTicks int `mapstructure:"orphan_grace_ticks" json:"orphan_grace_ticks" yaml:"orphan_grace_ticks"`
+	// OrphanGracePeriod is the minimum time a replica must be orphaned before removal
+	// (in addition to OrphanGraceTicks), so fast polling cannot remove replicas hastily.
+	OrphanGracePeriod time.Duration `mapstructure:"orphan_grace_period" json:"orphan_grace_period" yaml:"orphan_grace_period"`
 	// ExcludeTag marks source torrents that must never be replicated (any rule).
 	ExcludeTag string `mapstructure:"exclude_tag" json:"exclude_tag" yaml:"exclude_tag"`
 	// StateFile persists planner memory (orphan confirmations) across runs.
@@ -130,9 +135,16 @@ type FilterConfig struct {
 	IncludePrivate bool     `mapstructure:"include_private" json:"include_private" yaml:"include_private"`
 	MinSize        string   `mapstructure:"min_size" json:"min_size" yaml:"min_size"`
 	MinRatio       float64  `mapstructure:"min_ratio" json:"min_ratio" yaml:"min_ratio"`
+	// NameRegex / ExcludeNameRegex match the torrent name (Go regexp; prefix (?i) for case-insensitive).
+	NameRegex        string `mapstructure:"name_regex" json:"name_regex" yaml:"name_regex"`
+	ExcludeNameRegex string `mapstructure:"exclude_name_regex" json:"exclude_name_regex" yaml:"exclude_name_regex"`
+	// SavePaths limits to torrents whose save path starts with one of these prefixes.
+	SavePaths []string `mapstructure:"save_paths" json:"save_paths" yaml:"save_paths"`
 
-	// MinSizeBytes is MinSize parsed during validation.
-	MinSizeBytes int64 `mapstructure:"-" json:"-" yaml:"-"`
+	// Derived during validation.
+	MinSizeBytes  int64          `mapstructure:"-" json:"-" yaml:"-"`
+	NameRE        *regexp.Regexp `mapstructure:"-" json:"-" yaml:"-"`
+	ExcludeNameRE *regexp.Regexp `mapstructure:"-" json:"-" yaml:"-"`
 }
 
 // AddConfig controls how replicas are added to targets.
@@ -153,11 +165,12 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("server.listen", ":8080")
 	v.SetDefault("server.base_path", "/")
 	v.SetDefault("daemon.enabled", true)
-	v.SetDefault("daemon.interval", "30s")
+	v.SetDefault("daemon.interval", "5s")
 	v.SetDefault("daemon.concurrency", 2)
 	v.SetDefault("daemon.dry_run", false)
 	v.SetDefault("daemon.replica_tag", "qbtr-replica")
 	v.SetDefault("daemon.orphan_grace_ticks", 2)
+	v.SetDefault("daemon.orphan_grace_period", "1m")
 	v.SetDefault("daemon.exclude_tag", "qbtr-exclude")
 }
 
@@ -195,32 +208,51 @@ func Load(path string) (*Config, error) {
 
 // Parse decodes YAML bytes (after ${VAR} expansion) into a validated Config.
 func Parse(raw []byte) (*Config, error) {
-	v := viper.New()
-	v.SetConfigType("yaml")
-	setDefaults(v)
-	v.SetEnvPrefix(EnvPrefix)
-	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
-	v.AutomaticEnv()
-
-	expanded, err := expandEnv(raw)
+	cfg, err := decode(raw, true)
 	if err != nil {
 		return nil, err
 	}
-	if err := v.ReadConfig(bytes.NewReader(expanded)); err != nil {
-		return nil, fmt.Errorf("parsing yaml: %w", err)
-	}
-
-	cfg := &Config{}
-	if err := v.Unmarshal(cfg); err != nil {
-		return nil, fmt.Errorf("decoding: %w", err)
-	}
-	applyRuleDefaults(v, cfg)
 	if err := cfg.loadSecrets(); err != nil {
 		return nil, err
 	}
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
+	return cfg, nil
+}
+
+// ParseRaw decodes the file as written, with defaults applied but without
+// ${VAR} expansion, QBTR_* overrides, password files or validation. The form
+// editor uses it so saving never copies environment values into the file.
+func ParseRaw(raw []byte) (*Config, error) {
+	return decode(raw, false)
+}
+
+func decode(raw []byte, live bool) (*Config, error) {
+	v := viper.New()
+	v.SetConfigType("yaml")
+	setDefaults(v)
+	data := raw
+	if live {
+		v.SetEnvPrefix(EnvPrefix)
+		v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+		v.AutomaticEnv()
+		expanded, err := expandEnv(raw)
+		if err != nil {
+			return nil, err
+		}
+		data = expanded
+	} else if err := unmarshalNode(raw, &yaml.Node{}); err != nil {
+		return nil, err
+	}
+	if err := v.ReadConfig(bytes.NewReader(data)); err != nil {
+		return nil, fmt.Errorf("parsing yaml: %w", err)
+	}
+	cfg := &Config{}
+	if err := v.Unmarshal(cfg); err != nil {
+		return nil, fmt.Errorf("decoding: %w", err)
+	}
+	applyRuleDefaults(v, cfg)
 	return cfg, nil
 }
 
@@ -307,8 +339,11 @@ func (c *Config) Validate() error {
 	default:
 		errs = append(errs, fmt.Errorf("log.format %q is invalid (text|json)", c.Log.Format))
 	}
-	if c.Daemon.Interval < 5*time.Second {
-		errs = append(errs, fmt.Errorf("daemon.interval must be >= 5s, got %s", c.Daemon.Interval))
+	if c.Daemon.Interval < time.Second {
+		errs = append(errs, fmt.Errorf("daemon.interval must be >= 1s, got %s", c.Daemon.Interval))
+	}
+	if c.Daemon.OrphanGracePeriod < 0 {
+		errs = append(errs, errors.New("daemon.orphan_grace_period must be >= 0"))
 	}
 	if c.Daemon.Concurrency < 1 {
 		errs = append(errs, errors.New("daemon.concurrency must be >= 1"))
@@ -387,6 +422,26 @@ func (c *Config) Validate() error {
 				errs = append(errs, fmt.Errorf("rule %q: filter.min_size: %w", r.Name, err))
 			}
 			r.Filter.MinSizeBytes = n
+		}
+		for _, f := range []struct {
+			key string
+			src string
+			dst **regexp.Regexp
+		}{{"name_regex", r.Filter.NameRegex, &r.Filter.NameRE}, {"exclude_name_regex", r.Filter.ExcludeNameRegex, &r.Filter.ExcludeNameRE}} {
+			if f.src == "" {
+				continue
+			}
+			re, err := regexp.Compile(f.src)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("rule %q: filter.%s: %w", r.Name, f.key, err))
+				continue
+			}
+			*f.dst = re
+		}
+		for j, p := range r.Filter.SavePaths {
+			if !strings.HasPrefix(p, "/") && !strings.Contains(p, ":") {
+				errs = append(errs, fmt.Errorf("rule %q: filter.save_paths[%d] must be an absolute path", r.Name, j))
+			}
 		}
 	}
 	return errors.Join(errs...)

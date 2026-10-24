@@ -20,11 +20,12 @@ server:
 
 daemon:
   enabled: true        # false (or `serve --no-daemon`) = UI/API only
-  interval: 30s        # reconcile interval (>= 5s)
+  interval: 5s         # poll interval (>= 1s); 1s-5s is fine on a LAN
   concurrency: 2       # actions executed in parallel
   dry_run: false       # log what would be done, change nothing
   replica_tag: qbtr-replica   # marks torrents added by qbt-replicator
   orphan_grace_ticks: 2       # passes a replica must be orphaned before removal
+  orphan_grace_period: 1m     # ...and for at least this long
   exclude_tag: qbtr-exclude   # source torrents with this tag are never replicated
 
 instances:
@@ -63,6 +64,9 @@ rules:
       include_private: false
       min_size: 0      # e.g. 500MiB, 1GB
       min_ratio: 0
+      name_regex: ""           # e.g. '(?i)S\d{2}E\d{2}'
+      exclude_name_regex: ""   # e.g. '(?i)\bsample\b'
+      save_paths: []           # e.g. [/data/tv]
     add:
       category: inherit   # inherit | "" (none) | explicit category name
       extra_tags: []

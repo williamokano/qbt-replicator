@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 
+	"go.yaml.in/yaml/v3"
+
 	"github.com/williamokano/qbt-replicator/internal/config"
 	"github.com/williamokano/qbt-replicator/internal/events"
 	"github.com/williamokano/qbt-replicator/internal/replicator"
@@ -128,4 +130,38 @@ func (s *Service) SaveConfig(edited string) (SaveResult, error) {
 		res.RestartRequired = append(res.RestartRequired, "log")
 	}
 	return res, nil
+}
+
+// RawConfigStruct returns the configuration file decoded as written (no ${VAR}
+// expansion or QBTR_* overrides) with defaults applied, for the form editor.
+func (s *Service) RawConfigStruct() (*config.Config, error) {
+	path := s.Config().Path
+	if path == "" {
+		return nil, errors.New("configuration was not loaded from a file")
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := config.ParseRaw(raw)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Path = path
+	return cfg, nil
+}
+
+// formHeader is written at the top of files saved from the form editor.
+const formHeader = `# qbt-replicator configuration, saved from the web UI form editor.
+# Full reference: https://github.com/williamokano/qbt-replicator/blob/main/docs/configuration.md
+# ${VAR} in values is read from the environment.
+`
+
+// SaveConfigStruct serializes cfg (built by the form editor) and saves it like SaveConfig.
+func (s *Service) SaveConfigStruct(cfg *config.Config) (SaveResult, error) {
+	b, err := yaml.Marshal(cfg)
+	if err != nil {
+		return SaveResult{}, err
+	}
+	return s.SaveConfig(formHeader + string(b))
 }

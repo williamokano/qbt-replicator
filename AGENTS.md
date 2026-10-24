@@ -84,3 +84,5 @@ Before pushing: `gofmt -l .` must be empty, `go mod tidy` must not change files,
   command and an HTTP handler; keep those adapters thin.
 - The planner (`replicator.Compute`) stays a pure function; add table tests for new cases.
 - Test against `internal/qbt/fake` (both dialects) instead of real servers.
+- Every config key is documented in `docs/configuration.md`; add new keys there, to
+  `config.example.yaml` and, if user-facing, to the Config form (`internal/web`).

@@ -27,6 +27,7 @@ func newCluster(t *testing.T, ruleExtra string) *cluster {
 	cl := &cluster{a: fake.New(true, "u", "p"), b: fake.New(false, "u", "p"), c: fake.New(true, "u", "p")}
 	t.Cleanup(func() { cl.a.Close(); cl.b.Close(); cl.c.Close() })
 	doc := fmt.Sprintf(`
+daemon: {orphan_grace_period: 0s}
 instances:
   - {name: a, url: %q, username: u, password: p}
   - {name: b, url: %q, username: u, password: p}

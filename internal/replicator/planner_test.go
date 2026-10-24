@@ -27,6 +27,7 @@ rules:
 	if err != nil {
 		t.Fatal(err)
 	}
+	cfg.Daemon.OrphanGracePeriod = 0 // tick-based tests; the period has its own test
 	for _, m := range mutate {
 		m(cfg)
 	}
@@ -267,5 +268,62 @@ func TestPlannerExplainsSkips(t *testing.T) {
 	p = Compute(cfg, snap, nil, now)
 	if len(p.Skipped) != 1 || p.Skipped[0].Target != "c" || !strings.Contains(p.Skipped[0].Reason, "unreachable") {
 		t.Errorf("skipped: %+v", p.Skipped)
+	}
+}
+
+func TestOrphanGracePeriod(t *testing.T) {
+	cfg := testConfig(t, func(c *config.Config) {
+		c.Daemon.OrphanGraceTicks = 1
+		c.Daemon.OrphanGracePeriod = time.Minute
+	})
+	snap := snapshot(map[string]inst{"b": {torrents: []qbt.Torrent{replica("h")}}})
+	p := Compute(cfg, snap, nil, now)
+	if len(p.Actions) != 0 {
+		t.Fatalf("removed before grace period: %s", actionsStr(p))
+	}
+	p = Compute(cfg, snap, p.Memory, now.Add(30*time.Second))
+	if len(p.Actions) != 0 {
+		t.Fatalf("removed after 30s: %s", actionsStr(p))
+	}
+	p = Compute(cfg, snap, p.Memory, now.Add(61*time.Second))
+	if actionsStr(p) != "remove:>b:h" {
+		t.Fatalf("not removed after period: %s", actionsStr(p))
+	}
+}
+
+func TestNameAndPathFilters(t *testing.T) {
+	cfg := testConfig(t, func(c *config.Config) {
+		c.Rules[0].Filter.NameRegex = "(?i)s\\d{2}e\\d{2}"
+		c.Rules[0].Filter.ExcludeNameRegex = "(?i)sample"
+		c.Rules[0].Filter.SavePaths = []string{"/data/tv/"}
+		c.Rules[0].Targets = []string{"b"}
+	})
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	mk := func(hash, name, path string) qbt.Torrent {
+		t := done(hash)
+		t.Name, t.SavePath = name, path
+		return t
+	}
+	snap := snapshot(map[string]inst{"a": {torrents: []qbt.Torrent{
+		mk("ok", "Show.S01E02.1080p", "/data/tv/Show"),
+		mk("movie", "Some.Movie.2024", "/data/tv"),
+		mk("sample", "Show.S01E02.SAMPLE", "/data/tv"),
+		mk("path", "Show.S01E03", "/data/tvx"),
+	}}})
+	p := Compute(cfg, snap, nil, now)
+	if actionsStr(p) != "add:a>b:ok" {
+		t.Fatalf("got %s skipped=%+v", actionsStr(p), p.Skipped)
+	}
+	if len(p.Skipped) != 3 {
+		t.Errorf("expected 3 skip reasons, got %+v", p.Skipped)
+	}
+}
+
+func TestInvalidNameRegex(t *testing.T) {
+	_, err := config.Parse([]byte("instances: [{name: a, url: \"http://a\"}, {name: b, url: \"http://b\"}]\nrules: [{sources: [a], filter: {name_regex: \"(\"}}]\n"))
+	if err == nil || !strings.Contains(err.Error(), "name_regex") {
+		t.Fatalf("expected regex error, got %v", err)
 	}
 }
