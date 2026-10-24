@@ -327,3 +327,39 @@ func TestInvalidNameRegex(t *testing.T) {
 		t.Fatalf("expected regex error, got %v", err)
 	}
 }
+
+func TestFailureBackoff(t *testing.T) {
+	cfg := testConfig(t)
+	snap := snapshot(map[string]inst{"a": {torrents: []qbt.Torrent{done("h")}}})
+	mem := NewMemory()
+	fail := Result{Action: Action{Type: ActionAdd, Hash: "h", Target: "b"}, Error: "export failed"}
+	mem.RecordResults([]Result{fail, {Action: Action{Type: ActionAdd, Hash: "h", Target: "c"}}}, now)
+
+	p := Compute(cfg, snap, mem, now.Add(10*time.Second))
+	if got := actionsStr(p); got != "add:a>c:h" {
+		t.Fatalf("during backoff: %s", got)
+	}
+	if len(p.Skipped) != 1 || p.Skipped[0].Target != "b" || !strings.Contains(p.Skipped[0].Reason, "export failed") {
+		t.Fatalf("skipped = %+v", p.Skipped)
+	}
+	if got := actionsStr(Compute(cfg, snap, mem, now.Add(retryBase))); got != "add:a>b:h add:a>c:h" {
+		t.Fatalf("after backoff: %s", got)
+	}
+
+	mem.RecordResults([]Result{fail, fail}, now)
+	if f := mem.Failures["b|h"]; f.Count != 3 || f.Until != now.Add(4*retryBase) {
+		t.Fatalf("failure = %+v", f)
+	}
+	mem.RecordResults([]Result{{Action: fail.Action}}, now)
+	if _, ok := mem.Failures["b|h"]; ok {
+		t.Fatal("success did not clear the failure")
+	}
+	if retryDelay(100) != retryMax {
+		t.Fatalf("retryDelay not capped: %s", retryDelay(100))
+	}
+
+	mem.RecordResults([]Result{fail}, now)
+	if p := Compute(cfg, snap, mem, now.Add(25*time.Hour)); len(p.Memory.Failures) != 0 {
+		t.Fatalf("stale failure kept: %+v", p.Memory.Failures)
+	}
+}

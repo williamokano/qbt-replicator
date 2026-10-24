@@ -54,6 +54,7 @@ internal/config/           viper YAML config, validation, starter file, secret m
 internal/qbt/              qBittorrent WebAPI client (4.x and 5.x dialects)
 internal/qbt/fake/         in-memory fake qBittorrent used by tests
 internal/replicator/       snapshot, pure planner, executor, engine/daemon, metrics
+internal/store/            SQLite persistence: events, run history, planner memory, outbox
 internal/app/              Service façade used by BOTH cli and web (+ config reload)
 internal/cli/              cobra commands (thin adapters)
 internal/web/              handlers, templates, static assets (embedded)
@@ -84,5 +85,7 @@ Before pushing: `gofmt -l .` must be empty, `go mod tidy` must not change files,
   command and an HTTP handler; keep those adapters thin.
 - The planner (`replicator.Compute`) stays a pure function; add table tests for new cases.
 - Test against `internal/qbt/fake` (both dialects) instead of real servers.
+- Schema changes are new entries appended to `store.migrations`; never edit a released
+  migration. Keep the SQL portable (a Postgres store may follow).
 - Every config key is documented in `docs/configuration.md`; add new keys there, to
   `config.example.yaml` and, if user-facing, to the Config form (`internal/web`).

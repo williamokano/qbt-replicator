@@ -1,0 +1,50 @@
+{{define "content"}}
+{{if .Filter.Hash}}
+<h2>History · {{if .TorrentName}}{{.TorrentName}}{{else}}<code>{{short .Filter.Hash}}</code>{{end}}</h2>
+<p class="muted small"><code>{{.Filter.Hash}}</code> · <a href="{{url "history"}}">All history</a> · <a href="{{url "torrents"}}?search={{query .Filter.Hash}}">Show in torrents</a></p>
+{{else}}
+<h2>History</h2>
+{{if .Day}}<p class="muted small">Last 24 h: {{template "stats" .Day}} · Last 7 days: {{template "stats" .Week}}</p>{{end}}
+{{end}}
+<form method="get" class="filters">
+  {{if .Filter.Hash}}<input type="hidden" name="hash" value="{{.Filter.Hash}}">{{else}}
+  <input type="search" name="search" value="{{.Filter.Search}}" placeholder="Torrent name or hash…" aria-label="Search torrent name or hash" autocomplete="off">{{end}}
+  <select name="instance" aria-label="Instance">
+    <option value="">All instances</option>
+    {{range .Instances}}<option {{if eq . $.Filter.Instance}}selected{{end}}>{{.}}</option>{{end}}
+  </select>
+  <select name="type" aria-label="Action">
+    <option value="">All actions</option>
+    {{range .Types}}<option {{if eq . $.Filter.Type}}selected{{end}}>{{.}}</option>{{end}}
+  </select>
+  <select name="result" aria-label="Result">
+    <option value="">Any result</option>
+    {{range .Results}}<option {{if eq . $.Filter.Result}}selected{{end}}>{{.}}</option>{{end}}
+  </select>
+  <button type="submit">Filter</button>
+  {{if or .Filtered .Filter.BeforeID}}<a href="{{url "history"}}">Clear</a>{{end}}
+</form>
+{{if .Error}}<p class="flash err">{{.Error}}</p>{{end}}
+{{if .Actions}}
+<table class="stack events">
+  <tr class="head"><th>Time</th><th>Result</th><th>Action</th><th>Instances</th><th>Torrent</th><th>Details</th></tr>
+  {{range .Actions}}
+  <tr class="{{if eq .Result "error"}}lvl-error{{end}}">
+    <td class="nowrap when">{{ts .Time}}</td>
+    <td class="tag">{{if eq .Result "ok"}}<span class="ok">ok</span>{{else}}{{.Result}}{{end}}</td>
+    <td class="tag">{{.Type}}</td>
+    <td class="tag nowrap">{{if .Source}}{{.Source}} → {{end}}{{.Target}}</td>
+    <td class="tag">{{if $.Filter.Hash}}{{if .Rule}}rule {{.Rule}}{{end}}{{else}}<a href="{{url "history"}}?hash={{.Hash}}" title="History of this torrent">{{.Name}}</a>{{end}}</td>
+    <td class="msg">{{.Reason}}{{if .Error}}<br><span class="err">{{.Error}}</span>{{end}}{{if .Duration}} <span class="muted small">({{dur .Duration}})</span>{{end}}</td>
+  </tr>
+  {{end}}
+</table>
+{{if .Older}}<p><a href="{{.Older}}">Older →</a></p>{{end}}
+{{else if not .Error}}<p class="muted">{{if .Filtered}}No actions match.{{else}}Nothing has been replicated yet. Actions taken by the daemon and by you appear here.{{end}}</p>{{end}}
+{{if .Filter.Hash}}
+<h3>Activity</h3>
+{{template "eventtable" .Events}}
+{{end}}
+{{end}}
+
+{{define "stats"}}{{.Actions}} action(s){{range $t, $n := .ByType}}, {{$n}} {{$t}}{{end}}{{if .Failed}}, <span class="err">{{.Failed}} failed</span>{{end}}{{end}}

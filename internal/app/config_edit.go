@@ -17,6 +17,7 @@ import (
 // new engine whenever the configuration is reloaded. With disabled true (the
 // --no-daemon flag) or daemon.enabled false it only waits for reloads.
 func (s *Service) RunDaemon(ctx context.Context, disabled bool) {
+	go s.pruneLoop(ctx)
 	for {
 		eng := s.Engine()
 		runCtx, cancel := context.WithCancel(ctx)
@@ -43,7 +44,7 @@ func (s *Service) RunDaemon(ctx context.Context, disabled bool) {
 
 // Reload swaps in a new engine built from cfg and restarts the daemon loop.
 func (s *Service) Reload(cfg *config.Config) error {
-	eng, err := replicator.NewEngine(cfg, s.events, s.metrics)
+	eng, err := replicator.NewEngine(cfg, s.events, s.metrics, s.store)
 	if err != nil {
 		return err
 	}

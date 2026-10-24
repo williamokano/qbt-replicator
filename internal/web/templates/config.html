@@ -61,6 +61,9 @@ and applies immediately. Saving from the form rewrites the file without comments
     <label>Log level
       <select name="log_level">{{$l := .Log.Level}}{{range $v := list4 "debug" "info" "warn" "error"}}<option {{if eq $v $l}}selected{{end}}>{{$v}}</option>{{end}}</select>
       <small>Needs a restart.</small></label>
+    <label>History retention
+      <input name="database_retention" value="{{.Database.Retention}}" placeholder="90d">
+      <small>How long history and activity are kept (e.g. 30d, 720h; 0 = forever).</small></label>
   </div>
   <label class="check"><input type="checkbox" name="daemon_enabled" {{if .Daemon.Enabled}}checked{{end}}> Run the replication daemon</label>
   <label class="check"><input type="checkbox" name="daemon_dry_run" {{if .Daemon.DryRun}}checked{{end}}> Dry run (log what would happen, change nothing)</label>

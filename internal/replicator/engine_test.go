@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/williamokano/qbt-replicator/internal/qbt"
 	"github.com/williamokano/qbt-replicator/internal/qbt/fake"
 	"github.com/williamokano/qbt-replicator/internal/replicator"
+	"github.com/williamokano/qbt-replicator/internal/store"
 )
 
 type cluster struct {
@@ -40,7 +42,7 @@ rules:
 	if err != nil {
 		t.Fatal(err)
 	}
-	eng, err := replicator.NewEngine(cfg, events.New(100, slog.New(slog.NewTextHandler(io.Discard, nil))), nil)
+	eng, err := replicator.NewEngine(cfg, events.New(100, slog.New(slog.NewTextHandler(io.Discard, nil))), nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,29 +254,88 @@ func TestSkipCheckingWithoutDataIsStoppedAfterStart(t *testing.T) {
 }
 
 func TestStatePersistsAcrossEngines(t *testing.T) {
+	for _, withDB := range []bool{false, true} {
+		t.Run(fmt.Sprintf("db=%v", withDB), func(t *testing.T) {
+			cl := newCluster(t, "    settle_delay: 0s\n")
+			seedShow(cl.a)
+			ctx := context.Background()
+			dir := t.TempDir()
+			cfg := *cl.eng.Config()
+			cfg.Path = dir + "/config.yaml"
+			mk := func() *replicator.Engine {
+				var st *store.Store
+				if withDB {
+					var err error
+					if st, err = store.Open(ctx, cfg.DatabaseURL()); err != nil {
+						t.Fatal(err)
+					}
+					t.Cleanup(func() { _ = st.Close() })
+				}
+				eng, err := replicator.NewEngine(&cfg, events.New(10, slog.New(slog.NewTextHandler(io.Discard, nil))), nil, st)
+				if err != nil {
+					t.Fatal(err)
+				}
+				eng.Executor().PollInterval = 5 * time.Millisecond
+				return eng
+			}
+			mk().RunOnce(ctx, false)
+			cl.a.Delete("h1")
+			mk().RunOnce(ctx, false) // first confirmation, persisted
+			if _, ok := cl.b.Get("h1"); !ok {
+				t.Fatal("removed too early")
+			}
+			mk().RunOnce(ctx, false) // second confirmation from a fresh process
+			if _, ok := cl.b.Get("h1"); ok {
+				t.Fatal("orphan grace did not survive restart")
+			}
+			if _, err := os.Stat(dir + "/state.json"); (err == nil) == withDB {
+				t.Errorf("state.json exists = %v with db = %v", err == nil, withDB)
+			}
+		})
+	}
+}
+
+func TestHistoryAndStateImport(t *testing.T) {
 	cl := newCluster(t, "    settle_delay: 0s\n")
 	seedShow(cl.a)
 	ctx := context.Background()
 	dir := t.TempDir()
 	cfg := *cl.eng.Config()
 	cfg.Path = dir + "/config.yaml"
-	mk := func() *replicator.Engine {
-		eng, err := replicator.NewEngine(&cfg, events.New(10, slog.New(slog.NewTextHandler(io.Discard, nil))), nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		eng.Executor().PollInterval = 5 * time.Millisecond
-		return eng
+	// A legacy state file is imported once into the database.
+	if err := os.WriteFile(dir+"/state.json", []byte(`{"orphans":{"x|y":1},"rechecks":{}}`), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	mk().RunOnce(ctx, false)
-	cl.a.Delete("h1")
-	mk().RunOnce(ctx, false) // first confirmation, persisted
-	if _, ok := cl.b.Get("h1"); !ok {
-		t.Fatal("removed too early")
+	st, err := store.Open(ctx, "memory")
+	if err != nil {
+		t.Fatal(err)
 	}
-	mk().RunOnce(ctx, false) // second confirmation from a fresh process
-	if _, ok := cl.b.Get("h1"); ok {
-		t.Fatal("orphan grace did not survive restart")
+	defer st.Close()
+	eng, err := replicator.NewEngine(&cfg, events.New(10, slog.New(slog.NewTextHandler(io.Discard, nil))), nil, st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng.Executor().PollInterval = 5 * time.Millisecond
+	if b, err := st.Get(ctx, "planner_memory"); err != nil || !strings.Contains(string(b), `"x|y":1`) {
+		t.Fatalf("state not imported: %s %v", b, err)
+	}
+
+	eng.RunOnce(ctx, true)  // dry run: not recorded
+	eng.RunOnce(ctx, false) // two adds
+	eng.RunOnce(ctx, false) // nothing to do: not recorded
+	if _, err := eng.Unreplicate(ctx, replicator.UnreplicateRequest{Hash: "h1", On: []string{"b"}}); err != nil {
+		t.Fatal(err)
+	}
+	acts, err := st.ListActions(ctx, store.ActionFilter{Hash: "h1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, a := range acts {
+		got = append(got, a.Type+">"+a.Target+":"+a.Result)
+	}
+	if strings.Join(got, " ") != "remove>b:ok add>c:ok add>b:ok" {
+		t.Fatalf("history = %v", got)
 	}
 }
 

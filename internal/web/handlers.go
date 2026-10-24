@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -56,7 +55,13 @@ func (s *Server) planPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) eventsPage(w http.ResponseWriter, r *http.Request) {
-	s.render(w, r, "events", map[string]any{"Events": s.svc.Events(0)})
+	f := eventFilter(r)
+	evs := s.events(r, f)
+	data := map[string]any{"Events": evs, "Filter": f, "Instances": s.svc.Config().InstanceNames()}
+	if len(evs) > 0 {
+		data["Older"] = olderLink(r, len(evs), f.Limit, int64(evs[len(evs)-1].ID)) //nolint:gosec // database ids fit in int64
+	}
+	s.render(w, r, "events", data)
 }
 
 // DocsURL is the configuration reference linked from the UI.
@@ -305,8 +310,7 @@ func (s *Server) apiPlan(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) apiEvents(w http.ResponseWriter, r *http.Request) {
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	writeJSON(w, http.StatusOK, s.svc.Events(limit))
+	writeJSON(w, http.StatusOK, s.events(r, eventFilter(r)))
 }
 
 func (s *Server) apiConfig(w http.ResponseWriter, _ *http.Request) {

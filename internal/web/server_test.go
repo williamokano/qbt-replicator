@@ -103,6 +103,24 @@ func TestAPIFlow(t *testing.T) {
 	if rec.Code != 200 {
 		t.Errorf("config: %d", rec.Code)
 	}
+
+	rec = do(h, http.MethodGet, "/api/v1/history?hash=h1", nil, nil)
+	var hist []struct{ Type, Target, Result, Name string }
+	if err := json.Unmarshal(rec.Body.Bytes(), &hist); err != nil || len(hist) != 2 || hist[0].Type != "remove" || hist[1].Type != "add" || hist[1].Result != "ok" {
+		t.Fatalf("history: %s %v", rec.Body.String(), err)
+	}
+	if rec := do(h, http.MethodGet, "/api/v1/history?limit=1", nil, nil); strings.Count(rec.Body.String(), `"type"`) != 1 {
+		t.Errorf("history limit: %s", rec.Body.String())
+	}
+	for _, p := range []string{"/history", "/history?hash=h1", "/history?search=linux&type=add&result=ok&instance=b", "/events?level=info&limit=1"} {
+		rec := do(h, http.MethodGet, p, nil, nil)
+		if rec.Code != 200 || !strings.Contains(rec.Body.String(), "Linux ISO") && !strings.HasPrefix(p, "/events") {
+			t.Errorf("%s: %d %s", p, rec.Code, rec.Body.String())
+		}
+	}
+	if body := do(h, http.MethodGet, "/events?limit=1", nil, nil).Body.String(); !strings.Contains(body, "Older") {
+		t.Error("events page has no pagination link")
+	}
 }
 
 func TestFormReplicateRedirects(t *testing.T) {

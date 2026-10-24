@@ -1,6 +1,7 @@
 package replicator
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,7 +14,18 @@ import (
 	"github.com/williamokano/qbt-replicator/internal/config"
 	"github.com/williamokano/qbt-replicator/internal/events"
 	"github.com/williamokano/qbt-replicator/internal/qbt"
+	"github.com/williamokano/qbt-replicator/internal/store"
 )
+
+// Run triggers recorded in history.
+const (
+	TriggerDaemon = "daemon" // the reconcile loop
+	TriggerSync   = "sync"   // a pass requested from the CLI, UI or API
+	TriggerManual = "manual" // replicate / unreplicate / include
+)
+
+// memoryKey is the database key holding planner memory.
+const memoryKey = "planner_memory"
 
 // RunReport summarizes one reconcile pass.
 type RunReport struct {
@@ -32,18 +44,22 @@ type Engine struct {
 	events  *events.Log
 	metrics *Metrics
 	exec    *Executor
+	store   *store.Store // nil: planner memory in the state file, no history
 
 	runMu   sync.Mutex // serializes reconcile passes and manual actions
 	stateMu sync.RWMutex
 	memory  *Memory
+	saved   []byte // last persisted memory, to skip identical writes
 	last    *RunReport
 	lastSn  *Snapshot
 	trigger chan struct{}
 	health  map[string]bool // last known reachability, for transition logging
 }
 
-// NewEngine builds clients for every configured instance.
-func NewEngine(cfg *config.Config, log *events.Log, metrics *Metrics) (*Engine, error) {
+// NewEngine builds clients for every configured instance. With a store,
+// planner memory and run history are kept in the database; without one,
+// memory goes to the state file.
+func NewEngine(cfg *config.Config, log *events.Log, metrics *Metrics, st *store.Store) (*Engine, error) {
 	clients := map[string]*qbt.Client{}
 	for _, in := range cfg.Instances {
 		c, err := qbt.New(qbt.Options{
@@ -59,13 +75,59 @@ func NewEngine(cfg *config.Config, log *events.Log, metrics *Metrics) (*Engine, 
 	if metrics == nil {
 		metrics = NewMetrics()
 	}
-	return &Engine{
-		cfg: cfg, clients: clients, events: log, metrics: metrics,
+	e := &Engine{
+		cfg: cfg, clients: clients, events: log, metrics: metrics, store: st,
 		exec: &Executor{Clients: clients, Events: log, Concurrency: cfg.Daemon.Concurrency,
 			DryRun: cfg.Daemon.DryRun},
-		memory:  loadState(cfg.StatePath(), log),
 		trigger: make(chan struct{}, 1),
-	}, nil
+	}
+	e.memory = e.loadMemory()
+	return e, nil
+}
+
+// loadMemory reads planner memory from the database, importing the legacy
+// state file the first time; without a database it uses the state file.
+func (e *Engine) loadMemory() *Memory {
+	if e.store == nil {
+		return loadState(e.cfg.StatePath(), e.events)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	b, err := e.store.Get(ctx, memoryKey)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		mem := loadState(e.cfg.StatePath(), e.events)
+		e.memory = mem
+		e.saveState()
+		return mem
+	case err != nil:
+		e.events.Add(events.Event{Level: events.Warn, Kind: "state", Message: "reading planner state: " + err.Error()})
+		return NewMemory()
+	}
+	mem := NewMemory()
+	if err := json.Unmarshal(b, mem); err != nil {
+		e.events.Add(events.Event{Level: events.Warn, Kind: "state", Message: "ignoring corrupt planner state: " + err.Error()})
+		return NewMemory()
+	}
+	e.saved = b
+	return mem.normalize()
+}
+
+// normalize replaces nil maps after decoding.
+func (m *Memory) normalize() *Memory {
+	if m.Orphans == nil {
+		m.Orphans = map[string]int{}
+	}
+	if m.Rechecks == nil {
+		m.Rechecks = map[string]bool{}
+	}
+	if m.OrphanSince == nil {
+		m.OrphanSince = map[string]time.Time{}
+	}
+	if m.Failures == nil {
+		m.Failures = map[string]Failure{}
+	}
+	return m
 }
 
 // loadState reads persisted planner memory; any problem yields empty memory.
@@ -85,31 +147,39 @@ func loadState(path string, log *events.Log) *Memory {
 		log.Add(events.Event{Level: events.Warn, Kind: "state", Message: "ignoring corrupt state file: " + err.Error()})
 		return NewMemory()
 	}
-	if mem.Orphans == nil {
-		mem.Orphans = map[string]int{}
-	}
-	if mem.Rechecks == nil {
-		mem.Rechecks = map[string]bool{}
-	}
-	return mem
+	return mem.normalize()
 }
 
-// saveState persists planner memory atomically (best effort). Caller holds stateMu.
+// saveState persists planner memory (best effort): to the database when there
+// is one, else atomically to the state file. Caller holds stateMu.
 func (e *Engine) saveState() {
+	b, err := json.Marshal(e.memory)
+	if err != nil || bytes.Equal(b, e.saved) {
+		return
+	}
+	if e.store != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := e.store.Put(ctx, memoryKey, b); err != nil {
+			e.events.Add(events.Event{Level: events.Warn, Kind: "state", Message: "saving planner state: " + err.Error()})
+			return
+		}
+		e.saved = b
+		return
+	}
 	path := e.cfg.StatePath()
 	if path == "" {
 		return
 	}
-	b, err := json.Marshal(e.memory)
-	if err == nil {
-		tmp := path + ".tmp"
-		if err = os.WriteFile(tmp, b, 0o600); err == nil {
-			err = os.Rename(tmp, path)
-		}
+	tmp := path + ".tmp"
+	if err = os.WriteFile(tmp, b, 0o600); err == nil {
+		err = os.Rename(tmp, path)
 	}
 	if err != nil {
 		e.events.Add(events.Event{Level: events.Warn, Kind: "state", Message: "writing state file: " + err.Error()})
+		return
 	}
+	e.saved = b
 }
 
 // Config returns the active configuration.
@@ -165,6 +235,10 @@ func (e *Engine) Plan(ctx context.Context) (*Plan, *Snapshot) {
 
 // RunOnce performs one reconcile pass. dryRun is OR-ed with the configured dry_run.
 func (e *Engine) RunOnce(ctx context.Context, dryRun bool) *RunReport {
+	return e.runOnce(ctx, dryRun, TriggerSync)
+}
+
+func (e *Engine) runOnce(ctx context.Context, dryRun bool, trigger string) *RunReport {
 	e.runMu.Lock()
 	defer e.runMu.Unlock()
 	start := time.Now()
@@ -188,12 +262,51 @@ func (e *Engine) RunOnce(ctx context.Context, dryRun bool) *RunReport {
 	e.metrics.observeRun(rep)
 	e.stateMu.Lock()
 	if !dry {
+		plan.Memory.RecordResults(results, time.Now())
 		e.memory = plan.Memory
 		e.saveState()
 	}
 	e.last = rep
 	e.stateMu.Unlock()
+	e.recordRun(trigger, start, dry, results)
 	return rep
+}
+
+// afterManual records a manual operation: failure backoff and history.
+func (e *Engine) afterManual(start time.Time, dry bool, results []Result) {
+	if !dry {
+		e.stateMu.Lock()
+		mem := e.memory.clone()
+		mem.RecordResults(results, time.Now())
+		e.memory = mem
+		e.saveState()
+		e.stateMu.Unlock()
+	}
+	e.recordRun(TriggerManual, start, dry, results)
+}
+
+// recordRun stores executed actions in the history (dry runs and empty passes
+// are not recorded, so a quiet daemon does not fill the database).
+func (e *Engine) recordRun(trigger string, start time.Time, dry bool, results []Result) {
+	if e.store == nil || dry || len(results) == 0 {
+		return
+	}
+	run := store.Run{Started: start, Duration: time.Since(start), Trigger: trigger}
+	for _, r := range results {
+		a := r.Action
+		rec := store.ActionRecord{Time: start, Type: string(a.Type), Hash: a.Hash, Name: a.Name, Source: a.Source,
+			Target: a.Target, Rule: a.Rule, Reason: a.Reason, Result: "ok", Error: r.Error, Duration: r.Duration}
+		if r.Error != "" {
+			rec.Result = "error"
+			run.Failed++
+		}
+		run.Actions = append(run.Actions, rec)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if _, err := e.store.AddRun(ctx, run); err != nil {
+		e.events.Add(events.Event{Level: events.Warn, Kind: "history", Message: "saving run history: " + err.Error()})
+	}
 }
 
 // logHealthChanges records instances going down or coming back, once per
@@ -232,7 +345,7 @@ func (e *Engine) Run(ctx context.Context) {
 	t := time.NewTicker(e.cfg.Daemon.Interval)
 	defer t.Stop()
 	for {
-		e.RunOnce(ctx, false)
+		e.runOnce(ctx, false, TriggerDaemon)
 		select {
 		case <-ctx.Done():
 			e.events.Add(events.Event{Level: events.Info, Kind: "daemon", Message: "daemon stopped"})
@@ -339,8 +452,11 @@ func (e *Engine) Replicate(ctx context.Context, req ReplicateRequest) ([]Result,
 		}
 		actions = append(actions, addAction(ActionAdd, e.cfg, addRule, srcCfg, tgtCfg, t, "manual replication"))
 	}
-	exec := e.exec.withDryRun(req.DryRun || e.cfg.Daemon.DryRun)
-	return exec.Execute(ctx, actions), nil
+	dry := req.DryRun || e.cfg.Daemon.DryRun
+	start := time.Now()
+	results := e.exec.withDryRun(dry).Execute(ctx, actions)
+	e.afterManual(start, dry, results)
+	return results, nil
 }
 
 // ruleTargets returns the union of targets of every rule whose sources include src.
@@ -412,8 +528,11 @@ func (e *Engine) Unreplicate(ctx context.Context, req UnreplicateRequest) ([]Res
 		}
 		removes = append(removes, Action{Type: ActionRemove, Hash: hash, Name: t.Name, Target: n, Reason: "manual unreplicate (files kept)"})
 	}
-	exec := e.exec.withDryRun(req.DryRun || e.cfg.Daemon.DryRun)
+	dry := req.DryRun || e.cfg.Daemon.DryRun
+	exec := e.exec.withDryRun(dry)
+	start := time.Now()
 	var results []Result
+	defer func() { e.afterManual(start, dry, results) }()
 	if req.Exclude {
 		// Tag the sources first so a concurrent pass cannot re-add the replicas.
 		excl, err := e.tagActions(snap, hash, ActionExclude)
@@ -427,7 +546,8 @@ func (e *Engine) Unreplicate(ctx context.Context, req UnreplicateRequest) ([]Res
 			}
 		}
 	}
-	return append(results, exec.Execute(ctx, removes)...), nil
+	results = append(results, exec.Execute(ctx, removes)...)
+	return results, nil
 }
 
 // Include removes daemon.exclude_tag from the torrent's sources so rules apply again.
@@ -438,7 +558,10 @@ func (e *Engine) Include(ctx context.Context, hash string, dryRun bool) ([]Resul
 	if err != nil {
 		return nil, err
 	}
-	results := e.exec.withDryRun(dryRun || e.cfg.Daemon.DryRun).Execute(ctx, acts)
+	dry := dryRun || e.cfg.Daemon.DryRun
+	start := time.Now()
+	results := e.exec.withDryRun(dry).Execute(ctx, acts)
+	e.afterManual(start, dry, results)
 	e.Trigger()
 	return results, nil
 }

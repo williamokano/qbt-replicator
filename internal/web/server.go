@@ -76,8 +76,8 @@ func newServer(svc *app.Service, logger *slog.Logger) (*Server, error) {
 		"list4":     func(a, b, c, d string) []string { return []string{a, b, c, d} },
 		"hasPrefix": strings.HasPrefix,
 	}
-	for _, page := range []string{"dashboard", "torrents", "plan", "events", "config", "configyaml"} {
-		t, err := template.New("layout.html").Funcs(funcs).ParseFS(templateFS, "templates/layout.html", "templates/"+page+".html")
+	for _, page := range []string{"dashboard", "torrents", "plan", "events", "history", "config", "configyaml"} {
+		t, err := template.New("layout.html").Funcs(funcs).ParseFS(templateFS, "templates/layout.html", "templates/partials.html", "templates/"+page+".html")
 		if err != nil {
 			return nil, fmt.Errorf("parsing %s: %w", page, err)
 		}
@@ -95,6 +95,7 @@ func newServer(svc *app.Service, logger *slog.Logger) (*Server, error) {
 	mux.HandleFunc("GET /torrents", s.torrentsPage)
 	mux.HandleFunc("GET /plan", s.planPage)
 	mux.HandleFunc("GET /events", s.eventsPage)
+	mux.HandleFunc("GET /history", s.historyPage)
 	mux.HandleFunc("GET /config", s.configPage)
 	mux.HandleFunc("POST /actions/sync", s.actionSync)
 	mux.HandleFunc("POST /actions/replicate", s.actionReplicate)
@@ -109,6 +110,7 @@ func newServer(svc *app.Service, logger *slog.Logger) (*Server, error) {
 	mux.HandleFunc("GET /api/v1/torrents", s.apiTorrents)
 	mux.HandleFunc("GET /api/v1/plan", s.apiPlan)
 	mux.HandleFunc("GET /api/v1/events", s.apiEvents)
+	mux.HandleFunc("GET /api/v1/history", s.apiHistory)
 	mux.HandleFunc("GET /api/v1/config", s.apiConfig)
 	mux.HandleFunc("GET /api/v1/config/raw", s.apiConfigRaw)
 	mux.HandleFunc("POST /api/v1/instances/test", s.apiTestInstance)

@@ -133,7 +133,8 @@ qbt-replicator torrents list [--instance X] [--search S] [--category C] [--compl
 qbt-replicator replicate <hash> [--from X] [--to Y,Z] [--force] [--dry-run]   # default targets: the rules for the source
 qbt-replicator unreplicate <hash> [--on Y] [--exclude] [--dry-run]   # refuses non-replicas; --exclude keeps rules from re-adding it
 qbt-replicator include <hash>                         # undo --exclude: rules replicate it again
-qbt-replicator events [--limit 50]                    # activity log of the running daemon
+qbt-replicator history [search] [--hash H] [--instance X] [--type add] [--result error] [--since 24h]
+qbt-replicator events [--limit 50] [--level warn] [--hash H]   # activity log
 qbt-replicator config init | validate | show          # init writes a starter file; show redacts secrets
 qbt-replicator healthcheck [--url ...]                # used by Docker HEALTHCHECK
 qbt-replicator version
@@ -147,12 +148,12 @@ Inside Docker: `docker exec qbt-replicator /qbt-replicator plan`.
 
 | Method | Path | |
 |---|---|---|
-| GET | `/`, `/torrents`, `/plan`, `/events`, `/config` | HTML UI (`?refresh=15` auto-refreshes) |
+| GET | `/`, `/torrents`, `/plan`, `/history[?hash=H]`, `/events`, `/config` | HTML UI (`?refresh=15` auto-refreshes) |
 | POST | `/config` | config editor save (form field `content`) |
 | GET / PUT | `/api/v1/config/raw` | read (secrets masked) / replace the YAML config |
 | POST | `/api/v1/instances/test` `{"name"}` or `{"url","username","password",…}` | test a saved or unsaved instance's connection and credentials |
 | POST | `/actions/sync`, `/actions/replicate`, `/actions/unreplicate` | UI form actions |
-| GET | `/api/v1/status[?fresh=1]`, `/api/v1/torrents`, `/api/v1/plan`, `/api/v1/events?limit=N`, `/api/v1/config` | JSON |
+| GET | `/api/v1/status[?fresh=1]`, `/api/v1/torrents`, `/api/v1/plan`, `/api/v1/events?limit=N&before=ID&level=&instance=&hash=`, `/api/v1/history?limit=N&before=ID&hash=&search=&instance=&type=&result=`, `/api/v1/config` | JSON |
 | POST | `/api/v1/sync` `{"dry_run":bool}` | run a pass, returns the report |
 | POST | `/api/v1/replicate` `{"hash","from","to":[],"force","dry_run"}` | manual replication |
 | POST | `/api/v1/unreplicate` `{"hash","on":[],"exclude","dry_run"}` | remove replicas (files kept); `exclude` tags the source so rules skip it |
@@ -186,8 +187,8 @@ Cross-origin POSTs are rejected (CSRF protection).
 - **Disk I/O.** `skip_checking: false` reads the whole torrent once per target.
 - **Stopped replicas show 0%.** qBittorrent only applies "skip hash check" once the torrent
   runs, so replicas added with `start: false` show 0% until started.
-- The activity log lives in memory (last 500 events); the daemon's planner state
-  (orphan confirmations) is persisted in `state.json`.
+- History, the activity log and planner state live in an embedded SQLite database,
+  `/config/qbt-replicator.db` by default (see [`database`](docs/configuration.md#database)).
 
 ## Development
 

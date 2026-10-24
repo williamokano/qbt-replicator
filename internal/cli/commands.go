@@ -19,6 +19,7 @@ import (
 	"github.com/williamokano/qbt-replicator/internal/app"
 	"github.com/williamokano/qbt-replicator/internal/config"
 	"github.com/williamokano/qbt-replicator/internal/replicator"
+	"github.com/williamokano/qbt-replicator/internal/store"
 	"github.com/williamokano/qbt-replicator/internal/version"
 	"github.com/williamokano/qbt-replicator/internal/web"
 )
@@ -338,19 +339,63 @@ func newIncludeCmd(g *globals) *cobra.Command {
 }
 
 func newEventsCmd(g *globals) *cobra.Command {
-	var limit int
+	var f store.EventFilter
 	cmd := &cobra.Command{
 		Use:   "events",
-		Short: "Show the activity log of a running daemon",
-		Long:  "Fetches /api/v1/events from a running daemon (events live in the daemon's memory).",
+		Short: "Show the activity log",
+		Long:  "Reads the activity log from the database (shared with a running daemon).",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if err := g.load(); err != nil {
+			svc, err := g.service()
+			if err != nil {
 				return err
 			}
-			return remoteEvents(ctxOf(cmd), cmd.OutOrStdout(), g, limit)
+			evs, err := svc.EventHistory(ctxOf(cmd), f)
+			if err != nil {
+				return err
+			}
+			return printEvents(cmd.OutOrStdout(), g.output, evs)
 		},
 	}
-	cmd.Flags().IntVar(&limit, "limit", 50, "number of events")
+	cmd.Flags().IntVar(&f.Limit, "limit", 50, "number of events")
+	cmd.Flags().StringVar(&f.Hash, "hash", "", "only events about this torrent")
+	cmd.Flags().StringVar(&f.Instance, "instance", "", "only events about this instance")
+	cmd.Flags().StringVar(&f.Level, "level", "", "only this level (info|warn|error)")
+	return cmd
+}
+
+func newHistoryCmd(g *globals) *cobra.Command {
+	var f store.ActionFilter
+	var since time.Duration
+	cmd := &cobra.Command{
+		Use:   "history [search]",
+		Short: "Show what qbt-replicator did (executed actions)",
+		Long: `Lists executed actions from the database, newest first. The optional
+argument matches the torrent name (substring) or hash prefix.`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := g.service()
+			if err != nil {
+				return err
+			}
+			if len(args) == 1 {
+				f.Search = args[0]
+			}
+			if since > 0 {
+				f.Since = time.Now().Add(-since)
+			}
+			acts, err := svc.History(ctxOf(cmd), f)
+			if err != nil {
+				return err
+			}
+			return printHistory(cmd.OutOrStdout(), g.output, acts)
+		},
+	}
+	cmd.Flags().IntVar(&f.Limit, "limit", 50, "number of actions")
+	cmd.Flags().StringVar(&f.Hash, "hash", "", "only this torrent (full hash)")
+	cmd.Flags().StringVar(&f.Instance, "instance", "", "only actions with this source or target instance")
+	cmd.Flags().StringVar(&f.Type, "type", "", "only this action type (add, readd, remove, recheck, stop, sync_limits, exclude, include)")
+	cmd.Flags().StringVar(&f.Result, "result", "", "only this result (ok|error)")
+	cmd.Flags().DurationVar(&since, "since", 0, "only actions newer than this (e.g. 24h)")
 	return cmd
 }
 

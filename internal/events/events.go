@@ -38,6 +38,15 @@ type Log struct {
 	full   bool
 	lastID uint64
 	logger *slog.Logger
+	sinks  []func(Event)
+}
+
+// AddSink registers a function called with every event after it is recorded
+// (persistence, notifications). Sinks run synchronously and must be quick.
+func (l *Log) AddSink(f func(Event)) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.sinks = append(l.sinks, f)
 }
 
 // New creates a log keeping the last size events.
@@ -64,7 +73,11 @@ func (l *Log) Add(e Event) Event {
 	if l.next == 0 {
 		l.full = true
 	}
+	sinks := l.sinks
 	l.mu.Unlock()
+	for _, f := range sinks {
+		f(e)
+	}
 
 	lvl := slog.LevelInfo
 	switch e.Level {

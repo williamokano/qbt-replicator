@@ -28,6 +28,10 @@ daemon:
   orphan_grace_period: 1m     # ...and for at least this long
   exclude_tag: qbtr-exclude   # source torrents with this tag are never replicated
 
+database:
+  # url: sqlite:///config/qbt-replicator.db   # default: next to this file; "memory" keeps nothing
+  retention: 90d       # history/activity kept this long ("0" = forever)
+
 instances:
   - name: qbt-1
     url: http://gluetun-1:8080

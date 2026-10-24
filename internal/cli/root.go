@@ -53,6 +53,11 @@ The configuration file is looked up in this order:
 		Version:       version.Version,
 	}
 	root.SetVersionTemplate(version.String() + "\n")
+	root.PersistentPostRun = func(*cobra.Command, []string) {
+		if g.svc != nil {
+			_ = g.svc.Close()
+		}
+	}
 	pf := root.PersistentFlags()
 	pf.StringVarP(&g.configPath, "config", "c", "", "config file (default $QBTR_CONFIG or "+config.DefaultPath+")")
 	pf.StringVar(&g.logLevel, "log-level", "", "override log.level (debug|info|warn|error)")
@@ -69,6 +74,7 @@ The configuration file is looked up in this order:
 		newUnreplicateCmd(g),
 		newIncludeCmd(g),
 		newEventsCmd(g),
+		newHistoryCmd(g),
 		newConfigCmd(g),
 		newHealthcheckCmd(g),
 		newVersionCmd(),

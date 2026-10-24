@@ -1,0 +1,11 @@
+{{define "eventtable"}}
+{{if .}}
+<table class="stack events">
+  <tr class="head"><th>Time</th><th>Level</th><th>Kind</th><th>Instance</th><th>Torrent</th><th>Message</th></tr>
+  {{range .}}
+  <tr class="lvl-{{.Level}}"><td class="nowrap when">{{ts .Time}}</td><td class="tag">{{.Level}}</td><td class="tag">{{.Kind}}</td><td class="tag">{{.Instance}}</td>
+      <td class="tag">{{if .Hash}}<a href="{{url "history"}}?hash={{.Hash}}" title="History of this torrent"><code>{{short .Hash}}</code></a>{{end}}</td><td class="msg">{{.Message}}</td></tr>
+  {{end}}
+</table>
+{{else}}<p class="muted">No activity yet.</p>{{end}}
+{{end}}

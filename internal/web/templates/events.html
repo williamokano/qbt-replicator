@@ -1,16 +1,18 @@
 {{define "content"}}
 <h2>Activity</h2>
+<form method="get" class="filters">
+  <select name="level" aria-label="Level">
+    <option value="">All levels</option>
+    {{range list4 "info" "warn" "error" ""}}{{if .}}<option {{if eq . $.Filter.Level}}selected{{end}}>{{.}}</option>{{end}}{{end}}
+  </select>
+  <select name="instance" aria-label="Instance">
+    <option value="">All instances</option>
+    {{range .Instances}}<option {{if eq . $.Filter.Instance}}selected{{end}}>{{.}}</option>{{end}}
+  </select>
+  {{if .Filter.Hash}}<input type="hidden" name="hash" value="{{.Filter.Hash}}"><span class="badge">torrent <code>{{short .Filter.Hash}}</code></span>{{end}}
+  <button type="submit">Filter</button>
+  {{if or .Filter.Level .Filter.Instance .Filter.Hash .Filter.BeforeID}}<a href="{{url "events"}}">Clear</a>{{end}}
+</form>
 {{template "eventtable" .Events}}
-{{end}}
-
-{{define "eventtable"}}
-{{if .}}
-<table class="stack events">
-  <tr class="head"><th>Time</th><th>Level</th><th>Kind</th><th>Instance</th><th>Torrent</th><th>Message</th></tr>
-  {{range .}}
-  <tr class="lvl-{{.Level}}"><td class="nowrap when">{{ts .Time}}</td><td class="tag">{{.Level}}</td><td class="tag">{{.Kind}}</td><td class="tag">{{.Instance}}</td>
-      <td class="tag">{{if .Hash}}<code>{{short .Hash}}</code>{{end}}</td><td class="msg">{{.Message}}</td></tr>
-  {{end}}
-</table>
-{{else}}<p class="muted">No activity yet.</p>{{end}}
+{{if .Older}}<p><a href="{{.Older}}">Older →</a></p>{{end}}
 {{end}}
