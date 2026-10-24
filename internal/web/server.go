@@ -56,21 +56,27 @@ func newServer(svc *app.Service, logger *slog.Logger) (*Server, error) {
 	base := strings.TrimRight(svc.Config().Server.BasePath, "/") + "/"
 	s := &Server{svc: svc, log: logger, base: base, pages: map[string]*template.Template{}}
 	funcs := template.FuncMap{
-		"bytes":  humanBytes,
-		"short":  func(h string) string { return h[:min(8, len(h))] },
-		"pct":    func(f float64) string { return fmt.Sprintf("%.0f%%", f*100) },
-		"since":  func(t time.Time) string { return since(t) },
-		"url":    func(p string) string { return base + strings.TrimPrefix(p, "/") },
-		"cell":   cellLabel,
-		"lower":  strings.ToLower,
-		"ratio":  func(f float64) string { return strconv.FormatFloat(f, 'f', 2, 64) },
-		"ts":     func(t time.Time) string { return t.Format(time.DateTime) },
-		"dur":    func(d time.Duration) string { return d.Round(time.Millisecond).String() },
-		"query":  url.QueryEscape,
-		"inc":    func(i int) int { return i + 1 },
-		"isZero": func(t time.Time) bool { return t.IsZero() },
+		"bytes":     humanBytes,
+		"short":     func(h string) string { return h[:min(8, len(h))] },
+		"pct":       func(f float64) string { return fmt.Sprintf("%.0f%%", f*100) },
+		"since":     func(t time.Time) string { return since(t) },
+		"url":       func(p string) string { return base + strings.TrimPrefix(p, "/") },
+		"cell":      cellLabel,
+		"lower":     strings.ToLower,
+		"ratio":     func(f float64) string { return strconv.FormatFloat(f, 'f', 2, 64) },
+		"ts":        func(t time.Time) string { return t.Format(time.DateTime) },
+		"dur":       func(d time.Duration) string { return d.Round(time.Millisecond).String() },
+		"query":     url.QueryEscape,
+		"inc":       func(i int) int { return i + 1 },
+		"isZero":    func(t time.Time) bool { return t.IsZero() },
+		"row":       func(i, v any) map[string]any { return map[string]any{"I": i, "V": v} },
+		"joinList":  joinList,
+		"sdur":      shortDuration,
+		"envref":    func(s string) bool { return strings.Contains(s, "${") },
+		"list4":     func(a, b, c, d string) []string { return []string{a, b, c, d} },
+		"hasPrefix": strings.HasPrefix,
 	}
-	for _, page := range []string{"dashboard", "torrents", "plan", "events", "config"} {
+	for _, page := range []string{"dashboard", "torrents", "plan", "events", "config", "configyaml"} {
 		t, err := template.New("layout.html").Funcs(funcs).ParseFS(templateFS, "templates/layout.html", "templates/"+page+".html")
 		if err != nil {
 			return nil, fmt.Errorf("parsing %s: %w", page, err)
@@ -95,6 +101,8 @@ func newServer(svc *app.Service, logger *slog.Logger) (*Server, error) {
 	mux.HandleFunc("POST /actions/unreplicate", s.actionUnreplicate)
 	mux.HandleFunc("POST /actions/include", s.actionInclude)
 	mux.HandleFunc("POST /config", s.configSave)
+	mux.HandleFunc("GET /config/yaml", s.configYAMLPage)
+	mux.HandleFunc("POST /config/form", s.configFormSave)
 
 	mux.HandleFunc("GET /api/v1/status", s.apiStatus)
 	mux.HandleFunc("GET /api/v1/torrents", s.apiTorrents)

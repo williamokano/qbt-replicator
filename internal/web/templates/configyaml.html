@@ -1,0 +1,28 @@
+{{define "content"}}
+<h2>Configuration</h2>
+<nav class="tabs">
+  <a href="{{url "config"}}">Form</a>
+  <a href="{{url "config/yaml"}}" class="active">Advanced (YAML)</a>
+  <a href="{{.DocsURL}}" target="_blank" rel="noopener">Documentation ↗</a>
+</nav>
+<p class="muted small">File <code>{{.File.Path}}</code>. Saving validates the YAML, keeps the previous file as
+<code>config.yaml.bak</code> and applies it immediately (restart needed only for <code>server.listen</code>,
+<code>server.base_path</code> and <code>log</code>). Tab indents with two spaces.</p>
+{{if .FileErr}}<p class="flash err">Cannot read the config file: {{.FileErr}}</p>{{end}}
+{{if .SaveErr}}<div class="flash err"><strong>Not saved:</strong><pre class="plain">{{.SaveErr}}</pre></div>{{end}}
+{{if .File.Overrides}}<p class="flash warn">These environment variables override values from the file:
+{{range .File.Overrides}}<code>{{.}}</code> {{end}}</p>{{end}}
+
+<form method="post" action="{{url "config"}}" class="editor" id="yamlform">
+  <textarea name="content" id="yaml" spellcheck="false" rows="32">{{.Content}}</textarea>
+  <div class="toolbar">
+    <button type="submit">Save &amp; apply</button>
+    <a href="{{url "config/yaml"}}">Discard changes</a>
+    <span class="muted small">Passwords are shown as <code>********</code>; leave them as-is to keep the saved value.</span>
+  </div>
+</form>
+<link rel="stylesheet" href="{{url "static/vendor/codemirror/codemirror.min.css"}}">
+<script src="{{url "static/vendor/codemirror/codemirror.min.js"}}"></script>
+<script src="{{url "static/vendor/codemirror/yaml.min.js"}}"></script>
+<script src="{{url "static/yamleditor.js"}}"></script>
+{{end}}

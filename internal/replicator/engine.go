@@ -39,6 +39,7 @@ type Engine struct {
 	last    *RunReport
 	lastSn  *Snapshot
 	trigger chan struct{}
+	health  map[string]bool // last known reachability, for transition logging
 }
 
 // NewEngine builds clients for every configured instance.
@@ -169,11 +170,7 @@ func (e *Engine) RunOnce(ctx context.Context, dryRun bool) *RunReport {
 	start := time.Now()
 	dry := dryRun || e.cfg.Daemon.DryRun
 	snap := e.Snapshot(ctx)
-	for _, name := range snap.Order {
-		if st := snap.Instances[name]; !st.Healthy {
-			e.events.Add(events.Event{Level: events.Warn, Kind: "health", Instance: name, Message: "instance unreachable: " + st.Error})
-		}
-	}
+	e.logHealthChanges(snap)
 	e.stateMu.RLock()
 	mem := e.memory
 	e.stateMu.RUnlock()
@@ -197,6 +194,27 @@ func (e *Engine) RunOnce(ctx context.Context, dryRun bool) *RunReport {
 	e.last = rep
 	e.stateMu.Unlock()
 	return rep
+}
+
+// logHealthChanges records instances going down or coming back, once per
+// transition, so short polling intervals do not flood the activity log.
+func (e *Engine) logHealthChanges(snap *Snapshot) {
+	e.stateMu.Lock()
+	defer e.stateMu.Unlock()
+	if e.health == nil {
+		e.health = map[string]bool{}
+	}
+	for _, name := range snap.Order {
+		st := snap.Instances[name]
+		was, known := e.health[name]
+		e.health[name] = st.Healthy
+		switch {
+		case !st.Healthy && (!known || was):
+			e.events.Add(events.Event{Level: events.Warn, Kind: "health", Instance: name, Message: "instance unreachable: " + st.Error})
+		case st.Healthy && known && !was:
+			e.events.Add(events.Event{Level: events.Info, Kind: "health", Instance: name, Message: "instance reachable again"})
+		}
+	}
 }
 
 // Trigger requests an immediate pass from the daemon loop (non-blocking).

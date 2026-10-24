@@ -78,7 +78,8 @@ the commented `networks:` section); otherwise use the NAS IP and published WebUI
 
 ### Config editor
 
-The **Config** page edits the YAML file directly. On save it validates the config, keeps
+The **Config** page has a form for daemon settings, instances and rules, and an
+**Advanced (YAML)** tab (CodeMirror: highlighting, Tab indents) that edits the file directly. On save it validates the config, keeps
 the previous file as `config.yaml.bak`, writes the new one atomically and **applies it
 without a restart** (only `server.listen`, `server.base_path` and `log` need one). Literal
 passwords are shown as `********`; leave them as-is to keep the stored value. The same is
@@ -113,36 +114,11 @@ special characters in the variable are safe), and instances can use
 
 ## Configuration
 
-See the fully commented [`config.example.yaml`](config.example.yaml). Summary:
-
-| Key | Default | Meaning |
-|---|---|---|
-| `log.level` / `log.format` | `info` / `text` | `debug\|info\|warn\|error`, `text\|json` |
-| `server.listen` | `:8080` | HTTP listen address |
-| `server.base_path` | `/` | mount path behind a reverse proxy |
-| `server.auth.username/password` | empty | enables basic auth (health endpoints exempt) |
-| `daemon.enabled` | `true` | run the reconcile loop in `serve` |
-| `daemon.interval` | `30s` | time between passes (≥ 5s) |
-| `daemon.concurrency` | `2` | actions in parallel |
-| `daemon.dry_run` | `false` | log actions, change nothing |
-| `daemon.replica_tag` | `qbtr-replica` | tag that marks torrents owned by the replicator |
-| `daemon.orphan_grace_ticks` | `2` | passes a replica must be orphaned before removal |
-| `daemon.exclude_tag` | `qbtr-exclude` | source torrents with this tag are never replicated (set by *Remove & exclude*) |
-| `daemon.state_file` | `state.json` next to config | `none` disables persistence |
-| `instances[].name/url/username/password` | | WebUI access (empty user+password = auth bypass/whitelist) |
-| `instances[].password_file` | | read password from a file |
-| `instances[].path_mappings` | none | only if containers mount the share at different paths |
-| `instances[].export_fallback_dir` | | mounted `BT_backup` dir, only for qBittorrent < 4.5 |
-| `rules[].sources` / `targets` | — / `["*"]` | instance names or `"*"` |
-| `rules[].settle_delay` | `2m` | wait after completion |
-| `rules[].filter.*` | any | `categories`, `tags`, `exclude_tags`, `trackers`, `include_private` (**false**), `min_size`, `min_ratio` |
-| `rules[].add.category` | `inherit` | `inherit`, `""` or a name (created on target if missing) |
-| `rules[].add.extra_tags` | `[]` | tags added to replicas besides the replica tag |
-| `rules[].add.skip_checking` | `true` | `false` = full recheck on each target before seeding |
-| `rules[].add.start` | `true` | `false` = add replicas stopped |
-| `rules[].remove_orphans` | `true` | remove replicas whose source is gone (files kept) |
-| `rules[].follow_relocation` | `true` | re-add replicas when the source moves |
-| `rules[].sync_share_limits` | `false` | mirror ratio/seeding-time limits |
+Configure everything from the web UI: the **Config** page has a form, and an **Advanced (YAML)**
+editor with syntax highlighting. Or edit `config.yaml` by hand. **Every setting, how rules
+decide, and rule recipes (by category, name regex, save path, tracker, tags, size…) are in
+[`docs/configuration.md`](docs/configuration.md).** [`config.example.yaml`](config.example.yaml)
+is a commented example.
 
 ## CLI
 

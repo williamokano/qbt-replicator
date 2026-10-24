@@ -1,61 +1,146 @@
 {{define "content"}}
 <h2>Configuration</h2>
-<p class="muted">File <code>{{.File.Path}}</code>. Saving validates the YAML, keeps the previous file as
-<code>config.yaml.bak</code> and applies it immediately (no restart needed, except for
-<code>server.listen</code>, <code>server.base_path</code> and <code>log</code>).</p>
-{{if .FileErr}}<p class="flash err">Cannot read the config file: {{.FileErr}}</p>{{end}}
-{{if not .Configured}}<p class="flash warn">Setup mode: no qBittorrent instances are configured yet. Add at least two
-instances and one rule below, then save.</p>{{end}}
+<nav class="tabs">
+  <a href="{{url "config"}}" class="active">Form</a>
+  <a href="{{url "config/yaml"}}">Advanced (YAML)</a>
+  <a href="{{.DocsURL}}" target="_blank" rel="noopener">Documentation ↗</a>
+</nav>
+<p class="muted small">File <code>{{.Path}}</code>. Saving validates, keeps the previous file as <code>config.yaml.bak</code>
+and applies immediately. Saving from the form rewrites the file without comments; use <em>Advanced</em> to edit
+<code>server.listen</code>, path mappings and other rarely used settings.</p>
+{{if .LoadErr}}<p class="flash err">Cannot load the config file for the form: {{.LoadErr}}. Use the <a href="{{url "config/yaml"}}">Advanced editor</a>.</p>{{end}}
+{{if not .Configured}}<p class="flash warn">Setup mode: add at least two instances and one rule, then save.</p>{{end}}
 {{if .SaveErr}}<div class="flash err"><strong>Not saved:</strong><pre class="plain">{{.SaveErr}}</pre></div>{{end}}
-{{if .File.Overrides}}<p class="flash warn">These environment variables override values from the file:
-{{range .File.Overrides}}<code>{{.}}</code> {{end}}</p>{{end}}
+{{if .Overrides}}<p class="flash warn">These environment variables override values from the file:
+{{range .Overrides}}<code>{{.}}</code> {{end}}</p>{{end}}
 
-<form method="post" action="{{url "config"}}" class="editor">
-  <textarea name="content" spellcheck="false" rows="32">{{.Content}}</textarea>
-  <div class="toolbar">
-    <button type="submit">Save &amp; apply</button>
-    <a href="{{url "config"}}">Discard changes</a>
-    <span class="muted small">Passwords are shown as <code>********</code>; leave them as-is to keep the saved value.
-      <code>${VAR}</code> values are read from the container environment.</span>
+{{with .Form}}
+<form method="post" action="{{url "config/form"}}" class="cfgform" id="cfgform">
+
+<fieldset>
+  <legend>Daemon</legend>
+  <div class="grid">
+    <label>Poll interval
+      <input name="daemon_interval" value="{{sdur .Daemon.Interval}}" placeholder="5s" required>
+      <small>How often instances are checked (min 1s). Lower = faster replication, more API calls.</small></label>
+    <label>Concurrency
+      <input name="daemon_concurrency" type="number" min="1" value="{{.Daemon.Concurrency}}">
+      <small>Actions executed in parallel.</small></label>
+    <label>Orphan confirmations
+      <input name="daemon_orphan_grace_ticks" type="number" min="1" value="{{.Daemon.OrphanGraceTicks}}">
+      <small>Passes a replica must be orphaned before removal…</small></label>
+    <label>Orphan grace period
+      <input name="daemon_orphan_grace_period" value="{{sdur .Daemon.OrphanGracePeriod}}" placeholder="1m">
+      <small>…and for at least this long (files are always kept).</small></label>
+    <label>Replica tag
+      <input name="daemon_replica_tag" value="{{.Daemon.ReplicaTag}}">
+      <small>Marks torrents added by qbt-replicator.</small></label>
+    <label>Exclude tag
+      <input name="daemon_exclude_tag" value="{{.Daemon.ExcludeTag}}">
+      <small>Source torrents with this tag are never replicated.</small></label>
+    <label>Log level
+      <select name="log_level">{{$l := .Log.Level}}{{range $v := list4 "debug" "info" "warn" "error"}}<option {{if eq $v $l}}selected{{end}}>{{$v}}</option>{{end}}</select>
+      <small>Needs a restart.</small></label>
   </div>
+  <label class="check"><input type="checkbox" name="daemon_enabled" {{if .Daemon.Enabled}}checked{{end}}> Run the replication daemon</label>
+  <label class="check"><input type="checkbox" name="daemon_dry_run" {{if .Daemon.DryRun}}checked{{end}}> Dry run (log what would happen, change nothing)</label>
+</fieldset>
+
+<fieldset>
+  <legend>Web UI login</legend>
+  <div class="grid">
+    <label>Username <input name="auth_username" value="{{.Server.Auth.Username}}" autocomplete="off"><small>Empty = no login.</small></label>
+    <label>Password <input name="auth_password" type="password" autocomplete="new-password" placeholder="{{if .Server.Auth.Password}}unchanged{{end}}"><small>Leave empty to keep the current one.</small></label>
+  </div>
+  {{if .Server.Auth.Password}}<label class="check"><input type="checkbox" name="auth_clear"> Remove the password (disable login)</label>{{end}}
+</fieldset>
+
+<fieldset>
+  <legend>qBittorrent instances</legend>
+  <p class="muted small">All instances must see the downloads at the same path (or configure path mappings in Advanced).</p>
+  <div id="inst-rows">
+    {{range $i, $in := .Instances}}{{template "instrow" (row $i $in)}}{{end}}
+  </div>
+  <button type="button" class="secondary" data-add="inst">+ Add instance</button>
+</fieldset>
+
+<fieldset>
+  <legend>Rules</legend>
+  <p class="muted small">A rule replicates completed torrents from <em>sources</em> to <em>targets</em>.
+    Use instance names separated by commas, or <code>*</code> for all. Instances: {{range $.Names}}<code>{{.}}</code> {{end}}
+    · <a href="{{$.DocsURL}}#rule-recipes" target="_blank" rel="noopener">rule recipes ↗</a></p>
+  <div id="rule-rows">
+    {{range $i, $r := .Rules}}{{template "rulerow" (row $i $r)}}{{end}}
+  </div>
+  <button type="button" class="secondary" data-add="rule">+ Add rule</button>
+</fieldset>
+
+<div class="toolbar sticky">
+  <button type="submit">Save &amp; apply</button>
+  <a href="{{url "config"}}">Discard changes</a>
+</div>
 </form>
-
-<details>
-<summary>Reference: example instance and rule</summary>
-<pre>instances:
-  - name: qbt-1
-    url: http://gluetun-1:8080
-    username: admin
-    password: ${QBT1_PASSWORD}      # or the literal password
-    # path_mappings: [{instance: /downloads, canonical: /data}]
-  - name: qbt-2
-    url: http://gluetun-2:8080
-    username: admin
-    password: ${QBT2_PASSWORD}
-rules:
-  - name: main
-    sources: [qbt-1]       # ["*"] = any instance
-    targets: ["*"]         # every other instance
-    settle_delay: 2m
-    filter:
-      categories: []
-      exclude_tags: [no-replicate]
-      include_private: false   # private trackers may ban multi-IP seeding
-      min_size: 0
-    add: {category: inherit, skip_checking: true, start: true}
-    remove_orphans: true
-    follow_relocation: true</pre>
-</details>
-
-<h3>Effective rules</h3>
-{{if .Config.Rules}}
-<table>
-  <tr><th>Name</th><th>Sources</th><th>Targets</th><th>Settle</th><th>Private</th><th>Orphans</th><th>Relocation</th></tr>
-  {{range .Config.Rules}}
-  <tr><td>{{.Name}}</td><td>{{range .Sources}}{{.}} {{end}}</td><td>{{range .Targets}}{{.}} {{end}}</td>
-      <td>{{.SettleDelay}}</td><td>{{if .Filter.IncludePrivate}}<span class="warn">included</span>{{else}}excluded{{end}}</td>
-      <td>{{if .RemoveOrphans}}remove{{else}}keep{{end}}</td><td>{{if .FollowRelocation}}follow{{else}}ignore{{end}}</td></tr>
-  {{end}}
-</table>
-{{else}}<p class="muted">No rules yet.</p>{{end}}
 {{end}}
+
+<template id="tpl-inst">{{template "instrow" (row "__i__" .BlankInstance)}}</template>
+<template id="tpl-rule">{{template "rulerow" (row "__i__" .BlankRule)}}</template>
+<script src="{{url "static/configform.js"}}"></script>
+{{end}}
+
+{{define "instrow"}}{{$i := .I}}{{with .V}}
+<div class="row card" data-row>
+  <input type="hidden" name="inst-{{$i}}-orig" value="{{.Name}}">
+  <div class="grid">
+    <label>Name <input name="inst-{{$i}}-name" value="{{.Name}}" placeholder="qbt-1"></label>
+    <label class="wide">WebUI URL <input name="inst-{{$i}}-url" value="{{.URL}}" placeholder="http://192.168.1.10:8080"></label>
+    <label>Username <input name="inst-{{$i}}-username" value="{{.Username}}" autocomplete="off"></label>
+    <label>Password
+      {{if envref .Password}}<input name="inst-{{$i}}-password" value="{{.Password}}">
+      {{else}}<input name="inst-{{$i}}-password" type="password" autocomplete="new-password" placeholder="{{if .Password}}unchanged{{end}}">{{end}}
+      <small>Empty keeps the saved one. <code>${VAR}</code> reads the environment.</small></label>
+    <label>Timeout <input name="inst-{{$i}}-timeout" value="{{if .Timeout}}{{sdur .Timeout}}{{end}}" placeholder="15s"></label>
+  </div>
+  <label class="check"><input type="checkbox" name="inst-{{$i}}-insecure" {{if .InsecureSkipVerify}}checked{{end}}> Skip TLS verification</label>
+  <button type="button" class="link small" data-remove>remove instance</button>
+</div>
+{{end}}{{end}}
+
+{{define "rulerow"}}{{$i := .I}}{{with .V}}
+<div class="row card" data-row>
+  <div class="grid">
+    <label>Rule name <input name="rule-{{$i}}-name" value="{{.Name}}" placeholder="main"></label>
+    <label>Sources <input name="rule-{{$i}}-sources" value="{{joinList .Sources}}" placeholder="qbt-1"><small>Where torrents complete.</small></label>
+    <label>Targets <input name="rule-{{$i}}-targets" value="{{joinList .Targets}}" placeholder="*"><small><code>*</code> = all except the source.</small></label>
+    <label>Settle delay <input name="rule-{{$i}}-settle_delay" value="{{sdur .SettleDelay}}" placeholder="2m"><small>Wait after completion before replicating.</small></label>
+  </div>
+  <details open>
+    <summary>Filters: which torrents this rule replicates (empty = any)</summary>
+    <div class="grid">
+      <label>Categories <input name="rule-{{$i}}-categories" value="{{joinList .Filter.Categories}}" placeholder="tv, movies"><small>Any of these.</small></label>
+      <label>Tags <input name="rule-{{$i}}-tags" value="{{joinList .Filter.Tags}}"><small>Has at least one.</small></label>
+      <label>Exclude tags <input name="rule-{{$i}}-exclude_tags" value="{{joinList .Filter.ExcludeTags}}" placeholder="no-replicate"><small>Has none of these.</small></label>
+      <label>Trackers <input name="rule-{{$i}}-trackers" value="{{joinList .Filter.Trackers}}" placeholder="tracker.example.org"><small>Substring of the tracker URL.</small></label>
+      <label>Name matches <input name="rule-{{$i}}-name_regex" value="{{.Filter.NameRegex}}" placeholder="(?i)S\d{2}E\d{2}"><small>Regular expression.</small></label>
+      <label>Name excludes <input name="rule-{{$i}}-exclude_name_regex" value="{{.Filter.ExcludeNameRegex}}" placeholder="(?i)sample"><small>Regular expression.</small></label>
+      <label>Save paths <input name="rule-{{$i}}-save_paths" value="{{joinList .Filter.SavePaths}}" placeholder="/data/tv"><small>Path prefixes.</small></label>
+      <label>Min size <input name="rule-{{$i}}-min_size" value="{{.Filter.MinSize}}" placeholder="1GiB"></label>
+      <label>Min ratio <input name="rule-{{$i}}-min_ratio" value="{{if .Filter.MinRatio}}{{.Filter.MinRatio}}{{end}}" placeholder="0"></label>
+    </div>
+    <label class="check"><input type="checkbox" name="rule-{{$i}}-include_private" {{if .Filter.IncludePrivate}}checked{{end}}>
+      Include private torrents <span class="warn small">(some private trackers forbid seeding from several IPs)</span></label>
+  </details>
+  <details>
+    <summary>How replicas are added and maintained</summary>
+    <div class="grid">
+      <label>Category <input name="rule-{{$i}}-add_category" value="{{.Add.Category}}" placeholder="inherit"><small><code>inherit</code>, empty, or a name.</small></label>
+      <label>Extra tags <input name="rule-{{$i}}-extra_tags" value="{{joinList .Add.ExtraTags}}"></label>
+    </div>
+    <label class="check"><input type="checkbox" name="rule-{{$i}}-skip_checking" {{if .Add.SkipChecking}}checked{{end}}> Skip hash check (source is verified complete)</label>
+    <label class="check"><input type="checkbox" name="rule-{{$i}}-start" {{if .Add.Start}}checked{{end}}> Start replicas (seed)</label>
+    <label class="check"><input type="checkbox" name="rule-{{$i}}-remove_orphans" {{if .RemoveOrphans}}checked{{end}}> Remove replicas when the source torrent is gone (files kept)</label>
+    <label class="check"><input type="checkbox" name="rule-{{$i}}-follow_relocation" {{if .FollowRelocation}}checked{{end}}> Re-add replicas when the source moves its files</label>
+    <label class="check"><input type="checkbox" name="rule-{{$i}}-sync_share_limits" {{if .SyncShareLimits}}checked{{end}}> Copy ratio/seeding-time limits from the source</label>
+  </details>
+  <button type="button" class="link small" data-remove>remove rule</button>
+</div>
+{{end}}{{end}}
