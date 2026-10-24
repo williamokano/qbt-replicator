@@ -144,9 +144,20 @@ func configFromForm(r *http.Request, base *config.Config) (*config.Config, error
 		}
 		in := oldInst[field(f, "inst", i, "orig")] // keeps path_mappings, password_file, …
 		in.Name, in.URL = name, url
-		in.Username = field(f, "inst", i, "username")
-		if pw := f.Get(fmt.Sprintf("inst-%d-password", i)); pw != "" {
-			in.Password = pw
+		if field(f, "inst", i, "auth") == "apikey" {
+			if k := f.Get(fmt.Sprintf("inst-%d-api_key", i)); k != "" {
+				in.APIKey = k
+			}
+			if in.APIKey == "" && in.APIKeyFile == "" {
+				errs = append(errs, fmt.Sprintf("Instance %s: enter the API key (or switch back to username & password)", name))
+			}
+			in.Username, in.Password, in.PasswordFile = "", "", ""
+		} else {
+			in.Username = field(f, "inst", i, "username")
+			if pw := f.Get(fmt.Sprintf("inst-%d-password", i)); pw != "" {
+				in.Password = pw
+			}
+			in.APIKey, in.APIKeyFile = "", ""
 		}
 		in.InsecureSkipVerify = checked(f, fmt.Sprintf("inst-%d-insecure", i))
 		in.Timeout = errs.duration("Instance "+name+" timeout", field(f, "inst", i, "timeout"), 15*time.Second)

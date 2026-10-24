@@ -51,6 +51,8 @@ type Server struct {
 	HasData func(hash string) bool
 	// ConnectionStatus is reported by /transfer/info.
 	ConnectionStatus string
+	// APIKey, when set, is accepted as "Authorization: Bearer <key>" instead of a session.
+	APIKey string
 }
 
 // Entry is a torrent held by the fake.
@@ -200,7 +202,8 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, "Ok.")
 		return
 	}
-	if s.user != "" {
+	byKey := s.APIKey != "" && r.Header.Get("Authorization") == "Bearer "+s.APIKey
+	if !byKey && (s.user != "" || s.APIKey != "") {
 		c, err := r.Cookie("SID")
 		if err != nil || s.sid == "" || c.Value != s.sid {
 			http.Error(w, "Forbidden", http.StatusForbidden)

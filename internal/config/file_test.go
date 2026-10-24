@@ -123,3 +123,39 @@ func TestYAMLErrorPointsAtBadLine(t *testing.T) {
 		t.Errorf("tab hint missing: %v", err)
 	}
 }
+
+func TestAPIKeyConfig(t *testing.T) {
+	dir := t.TempDir()
+	keyFile := filepath.Join(dir, "key")
+	if err := os.WriteFile(keyFile, []byte("qbt_fromfile\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Parse([]byte(`
+instances:
+  - {name: a, url: "http://a", api_key: qbt_inline}
+  - {name: b, url: "http://b", api_key_file: ` + keyFile + `}
+rules: [{sources: [a]}]
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Instances[0].APIKey != "qbt_inline" || cfg.Instances[1].APIKey != "qbt_fromfile" {
+		t.Fatalf("keys: %+v", cfg.Instances)
+	}
+	if red := cfg.Redacted(); red.Instances[0].APIKey != Mask {
+		t.Error("api key not redacted")
+	}
+	masked, err := MaskSecrets([]byte("instances:\n  - name: a\n    api_key: qbt_inline\n"))
+	if err != nil || strings.Contains(string(masked), "qbt_inline") {
+		t.Errorf("api key not masked in editor: %s %v", masked, err)
+	}
+	_, err = Parse([]byte(`
+instances:
+  - {name: a, url: "http://a", api_key: k, username: u, password: p}
+  - {name: b, url: "http://b"}
+rules: [{sources: [a]}]
+`))
+	if err == nil || !strings.Contains(err.Error(), "either api_key or username") {
+		t.Errorf("expected conflict error, got %v", err)
+	}
+}
