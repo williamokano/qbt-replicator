@@ -1,14 +1,28 @@
 name: Release
 
+# Versioning is driven by conventional commits:
+#  - every push to main updates (or opens) a release-please "chore(release): x.y.z" PR
+#    with the next semantic version and CHANGELOG.md;
+#  - merging that PR creates the vX.Y.Z tag + GitHub release, and this same run
+#    publishes the binaries (GoReleaser) and the versioned container image.
+# Every push to main also publishes ghcr.io/...:latest and :sha-<commit>.
+# A manually pushed v* tag, or a manual run with an existing tag, publishes that version.
+
 on:
   push:
     branches: [main]
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to (re)publish binaries and image for, e.g. v0.1.0
+        required: false
 
 permissions:
   contents: write
   packages: write
+  pull-requests: write
+  issues: write
 
 concurrency:
   group: release-${{ github.ref }}
@@ -19,11 +33,55 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  release-please:
+    name: Release PR / tag
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.rp.outputs.release_created }}
+      tag_name: ${{ steps.rp.outputs.tag_name }}
+    steps:
+      - id: rp
+        uses: googleapis/release-please-action@v4
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  plan:
+    name: Resolve version
+    needs: release-please
+    if: ${{ !cancelled() && needs.release-please.result != 'failure' }}
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      main: ${{ steps.tag.outputs.main }}
+    steps:
+      - id: tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          RP_CREATED: ${{ needs.release-please.outputs.release_created }}
+          RP_TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          tag=""
+          if [ -n "$INPUT_TAG" ]; then tag="$INPUT_TAG"
+          elif [ "$GITHUB_REF_TYPE" = tag ]; then tag="$GITHUB_REF_NAME"
+          elif [ "$RP_CREATED" = true ]; then tag="$RP_TAG"
+          fi
+          main=false
+          if [ "$GITHUB_EVENT_NAME" = push ] && [ "$GITHUB_REF" = refs/heads/main ]; then main=true; fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "main=$main" >> "$GITHUB_OUTPUT"
+          echo "Release tag: ${tag:-<none>}, main build: $main" >> "$GITHUB_STEP_SUMMARY"
+
   test:
     name: Test
+    needs: plan
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.plan.outputs.tag || github.sha }}
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
@@ -31,14 +89,13 @@ jobs:
 
   image:
     name: Build & push image
-    needs: test
+    needs: [plan, test]
+    if: ${{ !cancelled() && needs.test.result == 'success' && (needs.plan.outputs.tag != '' || needs.plan.outputs.main == 'true') }}
     runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.meta.outputs.version }}
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0
+          ref: ${{ needs.plan.outputs.tag || github.sha }}
 
       - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v4
@@ -54,18 +111,20 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-            type=sha,format=short,prefix=sha-
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
+            type=raw,value=latest,enable=${{ needs.plan.outputs.main == 'true' }}
+            type=sha,format=short,prefix=sha-,enable=${{ needs.plan.outputs.main == 'true' }}
+            type=semver,pattern={{version}},value=${{ needs.plan.outputs.tag }},enable=${{ needs.plan.outputs.tag != '' }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.plan.outputs.tag }},enable=${{ needs.plan.outputs.tag != '' }}
+            type=semver,pattern={{major}},value=${{ needs.plan.outputs.tag }},enable=${{ needs.plan.outputs.tag != '' }}
           labels: |
             org.opencontainers.image.title=qbt-replicator
             org.opencontainers.image.description=Replicate completed torrents across qBittorrent instances sharing storage
 
-      - name: Build date
-        id: date
-        run: echo "value=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+      - name: Build metadata
+        id: build
+        run: |
+          echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - uses: docker/build-push-action@v7
         with:
@@ -76,39 +135,31 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             VERSION=${{ steps.meta.outputs.version }}
-            COMMIT=${{ github.sha }}
-            DATE=${{ steps.date.outputs.value }}
+            COMMIT=${{ steps.build.outputs.commit }}
+            DATE=${{ steps.build.outputs.date }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: true
           sbom: true
 
-  github-release:
-    name: GitHub release
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: image
+  goreleaser:
+    name: Binaries (GoReleaser)
+    needs: [plan, test]
+    if: ${{ !cancelled() && needs.test.result == 'success' && needs.plan.outputs.tag != '' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ needs.plan.outputs.tag }}
           fetch-depth: 0
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - name: Build binaries
-        run: |
-          VERSION="${GITHUB_REF_NAME}"
-          for target in linux/amd64 linux/arm64 darwin/arm64 windows/amd64; do
-            os="${target%/*}"; arch="${target#*/}"
-            ext=""; [ "$os" = windows ] && ext=".exe"
-            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath \
-              -ldflags "-s -w -X github.com/williamokano/qbt-replicator/internal/version.Version=${VERSION} -X github.com/williamokano/qbt-replicator/internal/version.Commit=${GITHUB_SHA} -X github.com/williamokano/qbt-replicator/internal/version.Date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-              -o "dist/qbt-replicator_${VERSION}_${os}_${arch}${ext}" ./cmd/qbt-replicator
-          done
-          (cd dist && sha256sum * > checksums.txt)
-      - uses: softprops/action-gh-release@v3
+      - uses: goreleaser/goreleaser-action@v6
         with:
-          generate_release_notes: true
-          files: dist/*
-          body: |
-            Docker image: `ghcr.io/${{ github.repository }}:${{ needs.image.outputs.version }}`
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GORELEASER_CURRENT_TAG: ${{ needs.plan.outputs.tag }}

@@ -220,7 +220,24 @@ make docker    # local image
 Tests run against an in-memory fake qBittorrent (`internal/qbt/fake`) that emulates both
 the 4.x and 5.x API dialects. See [`docs/PLAN.md`](docs/PLAN.md) for the design.
 
+### Releasing
+
+Versions are computed from [Conventional Commits](https://www.conventionalcommits.org/)
+(see [`AGENTS.md`](AGENTS.md)):
+
+1. Merge PRs to `main` with conventional titles (`feat: …`, `fix: …`, `feat!: …`). PRs are
+   squash-merged and the `PR title` check enforces the format.
+2. [release-please](https://github.com/googleapis/release-please) keeps an open
+   `chore(release): x.y.z` PR with the next semantic version and `CHANGELOG.md`.
+   While below 1.0.0, `feat` bumps the minor version and breaking changes bump the minor too.
+3. Merging that PR tags `vX.Y.Z`, creates the GitHub release, and the same workflow run
+   publishes binaries/archives with [GoReleaser](https://goreleaser.com) and the
+   `ghcr.io/williamokano/qbt-replicator:X.Y.Z` / `X.Y` / `X` images.
+
+Every push to `main` still publishes `:latest` and `:sha-<commit>`. To (re)publish
+artifacts for an existing tag, run the **Release** workflow manually with its `tag` input.
+`make snapshot` runs GoReleaser locally without publishing.
+
 CI (`.github/workflows/ci.yml`) runs gofmt, `go mod tidy`, vet, golangci-lint, race tests and
-a Docker build on every pull request. `.github/workflows/release.yml` pushes multi-arch
-images to GHCR on every push to `main` (`latest`, `sha-*`) and on `v*` tags (semver tags +
-a GitHub release with binaries).
+a Docker build on every pull request. `.github/workflows/release.yml` runs release-please,
+GoReleaser and the multi-arch image build (see *Releasing*).
