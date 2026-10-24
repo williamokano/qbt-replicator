@@ -205,7 +205,7 @@ func TestEnvExpansionIsYAMLSafe(t *testing.T) {
 
 // The documented full example and the example file must stay valid.
 func TestDocumentedExamplesParse(t *testing.T) {
-	for _, k := range []string{"QBT1_PASSWORD", "QBT2_PASSWORD", "QBT3_PASSWORD", "QBT3_API_KEY", "QBTR_UI_PASSWORD"} {
+	for _, k := range []string{"QBT1_PASSWORD", "QBT2_PASSWORD", "QBT3_PASSWORD", "QBT3_API_KEY", "QBTR_UI_PASSWORD", "TELEGRAM_BOT_TOKEN"} {
 		t.Setenv(k, "x")
 	}
 	doc, err := os.ReadFile("../../docs/configuration.md")
@@ -258,5 +258,57 @@ func TestDatabase(t *testing.T) {
 		if d, err := ParseDays(in); err != nil || d != want {
 			t.Errorf("ParseDays(%q) = %s, %v", in, d, err)
 		}
+	}
+}
+
+func TestNotifications(t *testing.T) {
+	t.Setenv("TG_TOKEN", "123:abc")
+	cfg, err := Parse([]byte(`
+server: {public_url: "https://qbtr.example.org"}
+notifications:
+  - {type: telegram, bot_token: "${TG_TOKEN}", chat_id: "-100123", thread_id: 7}
+  - {name: hook, type: webhook, url: "http://hook:9000/x", enabled: false, digest: 0s, events: [action_failed], daily_summary: "08:30"}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tg, hook := cfg.Notifications[0], cfg.Notifications[1]
+	if tg.Name != "telegram" || !tg.Enabled || tg.Digest != 30*time.Second || tg.BotToken != "123:abc" || tg.ThreadID != 7 {
+		t.Errorf("telegram defaults: %+v", tg)
+	}
+	if !tg.Wants(EventReplicaAdded) || hook.Wants(EventReplicaAdded) || !hook.Wants(EventActionFailed) {
+		t.Error("Wants wrong")
+	}
+	if hook.Enabled || hook.Digest != 0 {
+		t.Errorf("explicit values not kept: %+v", hook)
+	}
+	if r := cfg.Redacted(); r.Notifications[0].BotToken != "********" || cfg.Notifications[0].BotToken != "123:abc" {
+		t.Error("bot token not redacted (or original modified)")
+	}
+	for _, bad := range []string{
+		"notifications: [{type: telegram, chat_id: '1'}]",
+		"notifications: [{type: telegram, bot_token: x}]",
+		"notifications: [{type: webhook, url: 'ftp://x'}]",
+		"notifications: [{type: email}]",
+		"notifications: [{type: webhook, url: 'http://x', events: [everything]}]",
+		"notifications: [{type: webhook, url: 'http://x', daily_summary: '25:00'}]",
+		"notifications: [{type: webhook, url: 'http://x'}, {type: webhook, url: 'http://y'}]",
+		"server: {public_url: 'replicator.lan'}",
+	} {
+		if _, err := Parse([]byte(bad)); err == nil {
+			t.Errorf("%s: expected error", bad)
+		}
+	}
+}
+
+func TestMaskNotificationSecrets(t *testing.T) {
+	raw := []byte("notifications:\n  - {name: tg, type: telegram, bot_token: '123:abc', chat_id: '1'}\n  - {name: h, type: webhook, url: 'http://x', token: s3cret}\n")
+	masked, err := MaskSecrets(raw)
+	if err != nil || strings.Contains(string(masked), "123:abc") || strings.Contains(string(masked), "s3cret") {
+		t.Fatalf("not masked: %s %v", masked, err)
+	}
+	back, err := UnmaskSecrets(masked, raw)
+	if err != nil || !strings.Contains(string(back), "123:abc") || !strings.Contains(string(back), "s3cret") {
+		t.Fatalf("not restored: %s %v", back, err)
 	}
 }

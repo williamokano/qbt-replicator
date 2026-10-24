@@ -399,6 +399,53 @@ argument matches the torrent name (substring) or hash prefix.`,
 	return cmd
 }
 
+func newNotifyCmd(g *globals) *cobra.Command {
+	cmd := &cobra.Command{Use: "notify", Short: "List notification destinations or send a test message"}
+	cmd.AddCommand(&cobra.Command{
+		Use:   "list",
+		Short: "List notifiers with their delivery counts",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			svc, err := g.service()
+			if err != nil {
+				return err
+			}
+			st := svc.Notifications(ctxOf(cmd))
+			if g.output == "json" {
+				return printJSON(cmd.OutOrStdout(), st)
+			}
+			tw := newTable(cmd.OutOrStdout())
+			fmt.Fprintln(tw, "NAME\tTYPE\tENABLED\tPENDING\tSENT\tFAILED")
+			for _, n := range st {
+				fmt.Fprintf(tw, "%s\t%s\t%v\t%d\t%d\t%d\n", n.Name, n.Type, n.Enabled,
+					n.Counts[store.OutboxPending], n.Counts[store.OutboxSent], n.Counts[store.OutboxFailed])
+			}
+			return tw.Flush()
+		},
+	})
+	cmd.AddCommand(&cobra.Command{
+		Use:   "test <name>",
+		Short: "Send a test message with a configured notifier",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := g.service()
+			if err != nil {
+				return err
+			}
+			for _, n := range svc.Config().Notifications {
+				if n.Name == args[0] {
+					if err := svc.TestNotification(ctxOf(cmd), n); err != nil {
+						return err
+					}
+					fmt.Fprintf(cmd.OutOrStdout(), "test message sent with %s\n", n.Name)
+					return nil
+				}
+			}
+			return fmt.Errorf("unknown notification %q", args[0])
+		},
+	})
+	return cmd
+}
+
 func newConfigCmd(g *globals) *cobra.Command {
 	cmd := &cobra.Command{Use: "config", Short: "Validate or display configuration"}
 	cmd.AddCommand(&cobra.Command{

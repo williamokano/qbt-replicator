@@ -7,7 +7,7 @@ previous version as `config.yaml.bak` and applies the change immediately. Only
 
 - [Where the file lives](#where-the-file-lives)
 - [Environment variables and secrets](#environment-variables-and-secrets)
-- [`log`](#log) · [`server`](#server) · [`daemon`](#daemon) · [`database`](#database) · [`instances`](#instances) · [`rules`](#rules)
+- [`log`](#log) · [`server`](#server) · [`daemon`](#daemon) · [`database`](#database) · [`notifications`](#notifications) · [`instances`](#instances) · [`rules`](#rules)
 - [How a rule decides what to replicate](#how-a-rule-decides-what-to-replicate)
 - [Rule recipes](#rule-recipes)
 - [Full example](#full-example)
@@ -56,6 +56,7 @@ Durations use Go syntax: `500ms`, `5s`, `2m`, `1h30m`. Sizes accept `1024`, `500
 | `server.base_path` | `/` | Mount path behind a reverse proxy, e.g. `/replicator`. Restart required. |
 | `server.auth.username` | empty | Enables HTTP basic auth when both username and password are set. `/healthz` and `/readyz` stay open. |
 | `server.auth.password` | empty | |
+| `server.public_url` | empty | How you reach the UI, e.g. `https://replicator.example.org`. Notifications link torrents to their history page with it. Empty = no links. |
 
 The UI can change the configuration and remove torrents from instances. Set `server.auth`
 if anyone else can reach it.
@@ -96,6 +97,66 @@ Configuration and rules stay in the YAML file.
 The database is a single file plus `-wal`/`-shm` companions while running; back up the
 whole `/config` directory. CLI commands run inside the container (`docker exec … qbt-replicator history`)
 share it with the daemon. Dry runs and passes with nothing to do are not recorded.
+
+## `notifications`
+
+A list of destinations. Each gets the events it subscribes to; bursts are batched
+(`digest`), the same failure is sent at most once every 6 hours, and undelivered
+messages are kept in the database and retried (30s, 1m, 2m, … up to 1h; dropped after
+10 attempts). Use **Test** on the Config page, or `qbt-replicator notify test <name>`.
+
+| Key | Default | Description |
+|---|---|---|
+| `name` | the type | Unique name. |
+| `type` | required | `telegram` or `webhook`. |
+| `enabled` | `true` | |
+| `events` | all | Any of `replica_added`, `replica_removed`, `action_failed`, `instance_down`, `instance_up`. |
+| `digest` | `30s` | Wait this long after the first message so a burst becomes one message. `0s` sends each at once. |
+| `daily_summary` | empty | Time of day (container time zone, set `TZ`) for a summary of the last 24 h and each instance's state, e.g. `09:00`. Sent within the hour after that time. |
+| `bot_token` / `bot_token_file` | | **Telegram**: token from @BotFather. |
+| `chat_id` | | **Telegram**: where to post: your user ID, a group ID (`-100…`) or a channel (`@name`). |
+| `thread_id` | | **Telegram**: forum topic ID in a supergroup. |
+| `silent` | `false` | **Telegram**: informational messages arrive without sound; failures and instance-down still ring. |
+| `api_url` | `https://api.telegram.org` | **Telegram**: for a self-hosted Bot API server. |
+| `url` | | **Webhook**: where to POST. |
+| `token` / `token_file` | | **Webhook**: sent as `Authorization: Bearer <token>`. |
+
+**Telegram setup**
+
+1. Talk to [@BotFather](https://t.me/BotFather), `/newbot`, and copy the token.
+2. Send your bot any message (or add it to a group).
+3. Open `https://api.telegram.org/bot<token>/getUpdates` and copy `message.chat.id`
+   (groups start with `-100`). For a topic, also copy `message.message_thread_id`.
+
+```yaml
+notifications:
+  - name: telegram
+    type: telegram
+    bot_token: ${TELEGRAM_BOT_TOKEN}
+    chat_id: "123456789"
+    silent: true
+    daily_summary: "09:00"
+```
+
+**Webhook payload** (`POST`, `Content-Type: application/json`, any 2xx is success; a
+`429` with `Retry-After` is honored):
+
+```json
+{
+  "source": "qbt-replicator",
+  "version": "0.5.0",
+  "text": "✅ Replicated Ubuntu 26.04\nqbt-1 → qbt-2, qbt-3",
+  "notices": [
+    {"kind": "replica_added", "level": "info", "time": "2026-10-24T09:00:00Z",
+     "title": "Replicated Ubuntu 26.04", "text": "qbt-1 → qbt-2, qbt-3",
+     "instance": "qbt-2,qbt-3", "source": "qbt-1", "hash": "…", "name": "Ubuntu 26.04",
+     "action": "add", "url": "https://replicator.example.org/history?hash=…"}
+  ]
+}
+```
+
+`text` is ready to display; `notices` has one entry per event (`kind` is one of the
+events above, `daily_summary` or `test`; `level` is `info`, `warn` or `error`).
 
 ## `instances`
 
@@ -298,6 +359,12 @@ daemon:
 
 database:
   retention: 90d                    # url defaults to /config/qbt-replicator.db
+
+notifications:
+  - name: telegram
+    type: telegram
+    bot_token: ${TELEGRAM_BOT_TOKEN}
+    chat_id: "123456789"
 
 instances:
   - name: qbt-1

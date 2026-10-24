@@ -28,7 +28,7 @@ services:
       # QBT2_PASSWORD: ${QBT2_PASSWORD}
       # QBT3_PASSWORD: ${QBT3_PASSWORD}
     volumes:
-      - qbtr_config:/config   # config.yaml, config.yaml.bak, state.json
+      - qbtr_config:/config   # config.yaml, config.yaml.bak, qbt-replicator.db
     # If your qBittorrent/gluetun containers are on a user-defined network and you
     # want to reach them by container name (http://gluetun-1:8080), join it:
     # networks: [qbt]

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -312,5 +313,90 @@ func TestConfigTestInstanceWithAPIKey(t *testing.T) {
 	row.Set("inst-0-api_key", "qbt_typo")
 	if res := post(row); res.OK || !strings.Contains(res.Message, "API key rejected") {
 		t.Fatalf("typed api key not tested: %+v", res)
+	}
+}
+
+func TestConfigFormNotifications(t *testing.T) {
+	var mu sync.Mutex
+	var got []map[string]any
+	var auth []string
+	hook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var b map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&b)
+		mu.Lock()
+		got, auth = append(got, b), append(auth, r.Header.Get("Authorization"))
+		mu.Unlock()
+	}))
+	defer hook.Close()
+	h, svc, path := setupFile(t, editable+`notifications:
+  - {name: tg, type: telegram, bot_token: "123:SECRET", chat_id: "42"}
+`)
+	page := do(h, http.MethodGet, "/config", nil, nil).Body.String()
+	if strings.Contains(page, "123:SECRET") || !strings.Contains(page, `value="42"`) || !strings.Contains(page, "tpl-notif") {
+		t.Fatal("notification row must show the chat id and hide the bot token")
+	}
+
+	v := baseForm()
+	v.Set("public_url", "https://qbtr.example.org")
+	for k, val := range map[string]string{
+		"notif-0-orig": "tg", "notif-0-name": "tg", "notif-0-type": "telegram", "notif-0-bot_token": "", "notif-0-chat_id": "-1001",
+		"notif-0-thread_id": "5", "notif-0-digest": "1m", "notif-0-enabled": "on", "notif-0-silent": "on",
+		"notif-3-orig": "", "notif-3-name": "hook", "notif-3-type": "webhook", "notif-3-url": hook.URL, "notif-3-token": "tok",
+		"notif-3-digest": "0s", "notif-3-daily_summary": "08:00", "notif-3-ev-action_failed": "on", "notif-3-ev-instance_down": "on",
+		"notif-3-chat_id": "ignored for webhooks",
+	} {
+		v.Set(k, val)
+	}
+	for _, ev := range config.NotificationEvents {
+		v.Set("notif-0-ev-"+ev, "on")
+	}
+	if rec := formPost(h, v); rec.Code != http.StatusSeeOther {
+		t.Fatalf("save: %d %s", rec.Code, rec.Body.String())
+	}
+	ns := svc.Config().Notifications
+	if len(ns) != 2 || svc.Config().Server.PublicURL != "https://qbtr.example.org" {
+		t.Fatalf("notifications = %+v", ns)
+	}
+	tg, wh := ns[0], ns[1]
+	if tg.BotToken != "123:SECRET" || tg.ChatID != "-1001" || tg.ThreadID != 5 || tg.Digest != time.Minute || !tg.Silent || len(tg.Events) != 0 {
+		t.Errorf("telegram = %+v", tg)
+	}
+	if wh.URL != hook.URL || wh.Token != "tok" || wh.ChatID != "" || wh.DailySummary != "08:00" || len(wh.Events) != 2 || wh.Wants(config.EventReplicaAdded) {
+		t.Errorf("webhook = %+v", wh)
+	}
+	if disk, _ := os.ReadFile(path); !strings.Contains(string(disk), "123:SECRET") {
+		t.Error("stored bot token lost")
+	}
+
+	// Test button: unsaved row with a new token, then the saved webhook via the API.
+	test := url.Values{"notif-7-orig": {"hook"}, "notif-7-name": {"hook"}, "notif-7-type": {"webhook"}, "notif-7-url": {hook.URL},
+		"notif-7-ev-action_failed": {"on"}}
+	rec := do(h, http.MethodPost, "/config/test-notification", strings.NewReader(test.Encode()),
+		map[string]string{"Content-Type": "application/x-www-form-urlencoded"})
+	if !strings.Contains(rec.Body.String(), `"ok": true`) {
+		t.Fatalf("test button: %s", rec.Body.String())
+	}
+	rec = do(h, http.MethodPost, "/api/v1/notifications/test", strings.NewReader(`{"name":"hook"}`), nil)
+	if !strings.Contains(rec.Body.String(), `"ok": true`) {
+		t.Fatalf("api test: %s", rec.Body.String())
+	}
+	mu.Lock()
+	if len(got) != 2 || auth[0] != "Bearer tok" || !strings.Contains(got[0]["text"].(string), "Test notification") {
+		t.Errorf("hook got %v %v", got, auth)
+	}
+	mu.Unlock()
+	rec = do(h, http.MethodPost, "/api/v1/notifications/test", strings.NewReader(`{"name":"nope"}`), nil)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("unknown notifier: %d", rec.Code)
+	}
+	if body := do(h, http.MethodGet, "/api/v1/notifications", nil, nil).Body.String(); !strings.Contains(body, `"name": "hook"`) {
+		t.Errorf("status: %s", body)
+	}
+
+	// No events ticked is an error.
+	v.Del("notif-3-ev-action_failed")
+	v.Del("notif-3-ev-instance_down")
+	if rec := formPost(h, v); rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "at least one event") {
+		t.Fatalf("expected event error: %d", rec.Code)
 	}
 }

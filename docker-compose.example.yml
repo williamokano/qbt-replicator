@@ -71,7 +71,9 @@ services:
       QBT1_PASSWORD: ${QBT1_PASSWORD}
       QBT2_PASSWORD: ${QBT2_PASSWORD}
       QBT3_PASSWORD: ${QBT3_PASSWORD}
+      TZ: Etc/UTC                  # used for notifications' daily_summary time
+      # TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
     volumes:
-      - ./qbt-replicator:/config   # config.yaml lives here; must be writable for state.json
+      - ./qbt-replicator:/config   # config.yaml and the qbt-replicator.db database; must be writable
     ports:
       - "8085:8080"

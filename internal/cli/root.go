@@ -75,6 +75,7 @@ The configuration file is looked up in this order:
 		newIncludeCmd(g),
 		newEventsCmd(g),
 		newHistoryCmd(g),
+		newNotifyCmd(g),
 		newConfigCmd(g),
 		newHealthcheckCmd(g),
 		newVersionCmd(),

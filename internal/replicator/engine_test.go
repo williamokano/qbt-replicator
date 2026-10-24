@@ -13,6 +13,7 @@ import (
 
 	"github.com/williamokano/qbt-replicator/internal/config"
 	"github.com/williamokano/qbt-replicator/internal/events"
+	"github.com/williamokano/qbt-replicator/internal/notify"
 	"github.com/williamokano/qbt-replicator/internal/qbt"
 	"github.com/williamokano/qbt-replicator/internal/qbt/fake"
 	"github.com/williamokano/qbt-replicator/internal/replicator"
@@ -423,5 +424,40 @@ func TestUnreplicateExcludeAndInclude(t *testing.T) {
 	}
 	if cl.a.DeletedFiles+cl.b.DeletedFiles+cl.c.DeletedFiles != 0 {
 		t.Fatal("files deleted")
+	}
+}
+
+func TestNotices(t *testing.T) {
+	cl := newCluster(t, "    settle_delay: 0s\n")
+	seedShow(cl.a)
+	ctx := context.Background()
+	var got []string
+	cl.eng.OnNotice(func(n notify.Notice) { got = append(got, n.Kind+":"+n.Instance+":"+n.Text) })
+
+	cl.eng.RunOnce(ctx, true) // dry run: nothing
+	cl.eng.RunOnce(ctx, false)
+	cl.c.Down = true
+	cl.eng.RunOnce(ctx, false)
+	cl.eng.RunOnce(ctx, false) // still down: no repeat
+	cl.c.Down = false
+	cl.eng.RunOnce(ctx, false)
+	cl.a.Delete("h1")
+	for range 2 {
+		cl.eng.RunOnce(ctx, false)
+	}
+	want := []string{
+		"replica_added:b,c:a → b, c",
+		"instance_down:c:",
+		"instance_up:c:",
+		"replica_removed:b:from b: source torrent no longer exists on any instance (files kept)",
+		"replica_removed:c:from c: source torrent no longer exists on any instance (files kept)",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("notices:\n%s", strings.Join(got, "\n"))
+	}
+	for i := range want {
+		if !strings.HasPrefix(got[i], want[i]) {
+			t.Errorf("notice %d = %q, want prefix %q", i, got[i], want[i])
+		}
 	}
 }

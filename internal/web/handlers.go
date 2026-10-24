@@ -76,11 +76,12 @@ func (s *Server) configPage(w http.ResponseWriter, r *http.Request) {
 // rejected submission after a failed save).
 func (s *Server) renderConfigForm(w http.ResponseWriter, r *http.Request, cfg *config.Config, loadErr, saveErr error, status int) {
 	data := map[string]any{
-		"DocsURL":       DocsURL,
-		"Path":          s.svc.Config().Path,
-		"Form":          cfg,
-		"Overrides":     config.EnvOverrides(),
-		"BlankInstance": config.InstanceConfig{},
+		"DocsURL":           DocsURL,
+		"Path":              s.svc.Config().Path,
+		"Form":              cfg,
+		"Overrides":         config.EnvOverrides(),
+		"BlankInstance":     config.InstanceConfig{},
+		"BlankNotification": config.NotificationConfig{Type: config.NotifyTelegram, Enabled: true, Digest: 30 * time.Second},
 		"BlankRule": config.RuleConfig{
 			Targets: []string{config.Wildcard}, SettleDelay: 2 * time.Minute,
 			Add:           config.AddConfig{Category: config.CategoryInherit, SkipChecking: true, Start: true},
@@ -448,4 +449,79 @@ func decodeOptional(r *http.Request, v any) error {
 		return fmt.Errorf("invalid JSON body: %w", err)
 	}
 	return nil
+}
+
+// testResult is the JSON answer of the notification Test button.
+type testResult struct {
+	OK      bool   `json:"ok"`
+	Message string `json:"message"`
+}
+
+func notificationTestResult(err error) testResult {
+	if err != nil {
+		return testResult{Message: err.Error()}
+	}
+	return testResult{OK: true, Message: "Test message sent. Check that it arrived."}
+}
+
+// configTestNotification sends a test message with one (unsaved) notification row.
+func (s *Server) configTestNotification(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	rows := formRows(r.PostForm, "notif")
+	if len(rows) != 1 {
+		writeErr(w, http.StatusBadRequest, errors.New("send exactly one notification row"))
+		return
+	}
+	old := map[string]config.NotificationConfig{}
+	if base, err := s.svc.RawConfigStruct(); err == nil {
+		for _, n := range base.Notifications {
+			old[n.Name] = n
+		}
+	}
+	var errs formErrors
+	n := notificationFromForm(r.PostForm, rows[0], old, &errs)
+	if len(errs) > 0 {
+		writeJSON(w, http.StatusOK, testResult{Message: strings.Join(errs, "; ")})
+		return
+	}
+	writeJSON(w, http.StatusOK, notificationTestResult(s.svc.TestNotification(r.Context(), n)))
+}
+
+type testNotificationBody struct {
+	Name string `json:"name"`
+	config.NotificationConfig
+}
+
+// apiTestNotification tests a saved notifier ({"name": "telegram"}) or one
+// given in full ({"type": "webhook", "url": ...}).
+func (s *Server) apiTestNotification(w http.ResponseWriter, r *http.Request) {
+	var b testNotificationBody
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&b); err != nil {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("invalid JSON body: %w", err))
+		return
+	}
+	n := b.NotificationConfig
+	if n.Type == "" {
+		found := false
+		for _, c := range s.svc.Config().Notifications {
+			if c.Name == b.Name {
+				n, found = c, true
+			}
+		}
+		if !found {
+			writeErr(w, http.StatusNotFound, fmt.Errorf("unknown notification %q", b.Name))
+			return
+		}
+	}
+	if n.Name == "" {
+		n.Name = b.Name
+	}
+	writeJSON(w, http.StatusOK, notificationTestResult(s.svc.TestNotification(r.Context(), n)))
+}
+
+func (s *Server) apiNotifications(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.svc.Notifications(r.Context()))
 }

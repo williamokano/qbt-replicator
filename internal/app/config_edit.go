@@ -18,6 +18,7 @@ import (
 // --no-daemon flag) or daemon.enabled false it only waits for reloads.
 func (s *Service) RunDaemon(ctx context.Context, disabled bool) {
 	go s.pruneLoop(ctx)
+	go s.notify.Run(ctx)
 	for {
 		eng := s.Engine()
 		runCtx, cancel := context.WithCancel(ctx)
@@ -48,6 +49,10 @@ func (s *Service) Reload(cfg *config.Config) error {
 	if err != nil {
 		return err
 	}
+	if err := s.notify.Configure(context.Background(), cfg); err != nil {
+		return err
+	}
+	eng.OnNotice(s.notify.Notify)
 	s.mu.Lock()
 	s.engine = eng
 	s.mu.Unlock()

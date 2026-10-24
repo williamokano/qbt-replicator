@@ -54,6 +54,7 @@ nav.tabs a.active { color:var(--accent); border-bottom-color:var(--accent); }
 .cfgform label { display:flex; flex-direction:column; gap:.2rem; font-size:13px; }
 .cfgform label.wide { grid-column:span 2; }
 .cfgform label.check { flex-direction:row; align-items:center; gap:.4rem; margin:.25rem 0; }
+.cfgform label.check input { flex:none; }
 .cfgform small { color:var(--muted); font-size:11.5px; }
 .cfgform .row.card { margin:.6rem 0; }
 .cfgform details { margin:.5rem 0; }
@@ -70,6 +71,7 @@ nav.tabs a.active { color:var(--accent); border-bottom-color:var(--accent); }
 .test-result { font-size:13px; overflow-wrap:anywhere; flex:1 1 220px; }
 .test-result.ok { color:var(--ok); } .test-result.err { color:var(--err); }
 .cfgform [hidden] { display:none !important; }
+.cfgform .checks { display:flex; flex-wrap:wrap; align-items:center; gap:.1rem 1rem; margin:.4rem 0; }
 
 /* --- responsive --- */
 td { overflow-wrap:anywhere; }

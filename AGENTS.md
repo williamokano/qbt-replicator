@@ -55,6 +55,7 @@ internal/qbt/              qBittorrent WebAPI client (4.x and 5.x dialects)
 internal/qbt/fake/         in-memory fake qBittorrent used by tests
 internal/replicator/       snapshot, pure planner, executor, engine/daemon, metrics
 internal/store/            SQLite persistence: events, run history, planner memory, outbox
+internal/notify/           notifications: Telegram/webhook senders, outbox dispatcher
 internal/app/              Service façade used by BOTH cli and web (+ config reload)
 internal/cli/              cobra commands (thin adapters)
 internal/web/              handlers, templates, static assets (embedded)

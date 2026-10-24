@@ -352,6 +352,21 @@ func (s *Store) updateOutbox(ctx context.Context, ids []int64, q string, arg any
 	return tx.Commit()
 }
 
+// DropPending marks pending items of notifiers not in keep as failed (the
+// notifier was removed from the configuration).
+func (s *Store) DropPending(ctx context.Context, keep []string) error {
+	q := `UPDATE outbox SET status = 'failed', last_error = 'notifier removed from the configuration' WHERE status = 'pending'`
+	args := make([]any, 0, len(keep))
+	if len(keep) > 0 {
+		q += " AND notifier NOT IN (?" + strings.Repeat(", ?", len(keep)-1) + ")" //nolint:gosec // placeholders only
+		for _, k := range keep {
+			args = append(args, k)
+		}
+	}
+	_, err := s.db.ExecContext(ctx, q, args...)
+	return err
+}
+
 // OutboxCounts returns item counts per status for a notifier.
 func (s *Store) OutboxCounts(ctx context.Context, notifier string) (map[string]int, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT status, COUNT(*) FROM outbox WHERE notifier = ? GROUP BY status`, notifier)

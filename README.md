@@ -40,7 +40,11 @@ JSON API**; every command and every UI button goes through the same service laye
 - Works with qBittorrent **4.x and 5.x** (detects WebAPI dialect: `pause/resume` vs
   `stop/start`, `paused` vs `stopped`, 5.x status codes). Tested against 4.6.7 and 5.3.0.
 - Web UI: dashboard (health, VPN port **connected/firewalled**, speeds), torrent ×
-  instance matrix with Replicate/Unreplicate buttons, pending plan, activity log, config.
+  instance matrix with Replicate/Unreplicate buttons, pending plan, history, activity log, config.
+- History of every action in an embedded SQLite database (no extra service to run).
+- **Notifications** to **Telegram** (your own bot) or any **webhook** (JSON): replicas
+  added/removed, failures, instances going down/up, and an optional daily summary. Bursts
+  are batched into one message, repeated failures are sent once, and delivery is retried.
 - JSON API, `/healthz`, `/readyz`, Prometheus `/metrics`, optional basic auth.
 - Dry-run mode everywhere.
 
@@ -135,6 +139,7 @@ qbt-replicator unreplicate <hash> [--on Y] [--exclude] [--dry-run]   # refuses n
 qbt-replicator include <hash>                         # undo --exclude: rules replicate it again
 qbt-replicator history [search] [--hash H] [--instance X] [--type add] [--result error] [--since 24h]
 qbt-replicator events [--limit 50] [--level warn] [--hash H]   # activity log
+qbt-replicator notify list | test <name>              # notification destinations, send a test message
 qbt-replicator config init | validate | show          # init writes a starter file; show redacts secrets
 qbt-replicator healthcheck [--url ...]                # used by Docker HEALTHCHECK
 qbt-replicator version
@@ -152,6 +157,8 @@ Inside Docker: `docker exec qbt-replicator /qbt-replicator plan`.
 | POST | `/config` | config editor save (form field `content`) |
 | GET / PUT | `/api/v1/config/raw` | read (secrets masked) / replace the YAML config |
 | POST | `/api/v1/instances/test` `{"name"}` or `{"url","username","password",…}` | test a saved or unsaved instance's connection and credentials |
+| GET | `/api/v1/notifications` | notifiers with pending/sent/failed counts |
+| POST | `/api/v1/notifications/test` `{"name"}` or `{"type","url",…}` | send a test notification |
 | POST | `/actions/sync`, `/actions/replicate`, `/actions/unreplicate` | UI form actions |
 | GET | `/api/v1/status[?fresh=1]`, `/api/v1/torrents`, `/api/v1/plan`, `/api/v1/events?limit=N&before=ID&level=&instance=&hash=`, `/api/v1/history?limit=N&before=ID&hash=&search=&instance=&type=&result=`, `/api/v1/config` | JSON |
 | POST | `/api/v1/sync` `{"dry_run":bool}` | run a pass, returns the report |

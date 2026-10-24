@@ -156,6 +156,7 @@ func configFromForm(r *http.Request, base *config.Config) (*config.Config, error
 		}
 		cfg.Database.Retention = v
 	}
+	cfg.Server.PublicURL = strings.TrimSpace(f.Get("public_url"))
 	cfg.Server.Auth.Username = strings.TrimSpace(f.Get("auth_username"))
 	switch pw := f.Get("auth_password"); {
 	case checked(f, "auth_clear"):
@@ -218,10 +219,72 @@ func configFromForm(r *http.Request, base *config.Config) (*config.Config, error
 		}
 		cfg.Rules = append(cfg.Rules, rc)
 	}
+	oldNotif := map[string]config.NotificationConfig{}
+	for _, n := range base.Notifications {
+		oldNotif[n.Name] = n
+	}
+	cfg.Notifications = nil
+	for _, i := range formRows(f, "notif") {
+		if field(f, "notif", i, "name") == "" && field(f, "notif", i, "chat_id") == "" && field(f, "notif", i, "url") == "" {
+			continue // blank row
+		}
+		cfg.Notifications = append(cfg.Notifications, notificationFromForm(f, i, oldNotif, &errs))
+	}
 	if len(errs) > 0 {
 		return &cfg, fmt.Errorf("%s", strings.Join(errs, "\n"))
 	}
 	return &cfg, nil
+}
+
+// eventLabels describe notification events in the form.
+var eventLabels = map[string]string{
+	config.EventReplicaAdded:   "Replica added",
+	config.EventReplicaRemoved: "Replica removed",
+	config.EventActionFailed:   "Action failed",
+	config.EventInstanceDown:   "Instance unreachable",
+	config.EventInstanceUp:     "Instance back",
+}
+
+// notificationFromForm reads notification row i on top of the stored notifier
+// with the row's original name. Empty token fields keep the stored ones.
+func notificationFromForm(f url.Values, i int, old map[string]config.NotificationConfig, errs *formErrors) config.NotificationConfig {
+	get := func(n string) string { return field(f, "notif", i, n) }
+	key := func(n string) string { return fmt.Sprintf("notif-%d-%s", i, n) }
+	n := old[get("orig")]
+	n.Name, n.Type = get("name"), get("type")
+	label := "Notification " + n.Name
+	n.Enabled = checked(f, key("enabled"))
+	n.Digest = errs.duration(label+" digest", get("digest"), 0)
+	n.DailySummary = get("daily_summary")
+	n.Events = nil
+	for _, ev := range config.NotificationEvents {
+		if checked(f, key("ev-"+ev)) {
+			n.Events = append(n.Events, ev)
+		}
+	}
+	switch len(n.Events) {
+	case 0:
+		*errs = append(*errs, label+": choose at least one event (or untick Enabled)")
+	case len(config.NotificationEvents):
+		n.Events = nil // all
+	}
+	switch n.Type {
+	case config.NotifyTelegram:
+		if v := f.Get(key("bot_token")); v != "" {
+			n.BotToken = v
+		}
+		n.ChatID = get("chat_id")
+		n.ThreadID = int64(errs.integer(label+" topic id", get("thread_id"), 0))
+		n.Silent = checked(f, key("silent"))
+		n.URL, n.Token, n.TokenFile = "", "", ""
+	case config.NotifyWebhook:
+		n.URL = get("url")
+		if v := f.Get(key("token")); v != "" {
+			n.Token = v
+		}
+		n.BotToken, n.BotTokenFile, n.ChatID, n.ThreadID, n.Silent, n.APIURL = "", "", "", 0, false, ""
+	}
+	return n
 }
 
 // shortDuration renders 2m0s as 2m and 1h0m0s as 1h for the form.
