@@ -51,7 +51,7 @@ func (s *Store) ListEvents(ctx context.Context, f EventFilter) ([]events.Event, 
 	}
 	q := `SELECT id, ts, level, kind, instance, hash, name, message FROM events`
 	if len(where) > 0 {
-		q += " WHERE " + strings.Join(where, " AND ")
+		q += " WHERE " + strings.Join(where, " AND ") //nolint:gosec // constant clauses; values are bound parameters
 	}
 	q += " ORDER BY id DESC LIMIT ?"
 	args = append(args, limitOr(f.Limit, 100))
@@ -68,7 +68,7 @@ func (s *Store) ListEvents(ctx context.Context, f EventFilter) ([]events.Event, 
 		if err := rows.Scan(&id, &ts, &level, &e.Kind, &e.Instance, &e.Hash, &e.Name, &e.Message); err != nil {
 			return nil, err
 		}
-		e.ID, e.Time, e.Level = uint64(id), fromMilli(ts), events.Level(level)
+		e.ID, e.Time, e.Level = uint64(id), fromMilli(ts), events.Level(level) //nolint:gosec // AUTOINCREMENT ids are positive
 		out = append(out, e)
 	}
 	return out, rows.Err()
@@ -182,7 +182,7 @@ func (s *Store) ListActions(ctx context.Context, f ActionFilter) ([]ActionRecord
 	}
 	q := `SELECT id, run_id, ts, type, hash, name, source, target, rule, reason, result, error, duration_ms FROM actions`
 	if len(where) > 0 {
-		q += " WHERE " + strings.Join(where, " AND ")
+		q += " WHERE " + strings.Join(where, " AND ") //nolint:gosec // constant clauses; values are bound parameters
 	}
 	q += " ORDER BY id DESC LIMIT ?"
 	args = append(args, limitOr(f.Limit, 100))

@@ -3,11 +3,11 @@
 qbt-replicator reads one YAML file. You can edit it in the web UI (**Config** page: a form,
 plus an **Advanced (YAML)** editor) or by hand. Saving in the UI validates the file, keeps the
 previous version as `config.yaml.bak` and applies the change immediately. Only
-`server.listen`, `server.base_path` and `log` need a restart.
+`server.listen`, `server.base_path`, `log` and `database.url` need a restart.
 
 - [Where the file lives](#where-the-file-lives)
 - [Environment variables and secrets](#environment-variables-and-secrets)
-- [`log`](#log) · [`server`](#server) · [`daemon`](#daemon) · [`instances`](#instances) · [`rules`](#rules)
+- [`log`](#log) · [`server`](#server) · [`daemon`](#daemon) · [`database`](#database) · [`instances`](#instances) · [`rules`](#rules)
 - [How a rule decides what to replicate](#how-a-rule-decides-what-to-replicate)
 - [Rule recipes](#rule-recipes)
 - [Full example](#full-example)
@@ -72,7 +72,30 @@ if anyone else can reach it.
 | `daemon.exclude_tag` | `qbtr-exclude` | Source torrents with this tag are never replicated by any rule. Set by **Remove & exclude** in the UI, `unreplicate --exclude` and the API. |
 | `daemon.orphan_grace_ticks` | `2` | A replica whose source torrent is gone (e.g. Sonarr removed it) is removed only after it was seen orphaned on this many consecutive passes… |
 | `daemon.orphan_grace_period` | `1m` | …**and** for at least this long, so a fast poll interval can't remove replicas hastily. Files are always kept, and nothing is removed while any instance is unreachable. |
-| `daemon.state_file` | `state.json` next to the config | Persists orphan confirmations across restarts. `none` disables it. |
+| `daemon.state_file` | `state.json` next to the config | **Legacy.** Planner memory now lives in the database; an existing state file is imported once on the first start and then ignored. Only used as storage when no database is available. |
+
+Adds that fail (export error, instance rejecting the torrent, …) are retried with a growing
+delay: 30s, 1m, 2m, … up to 1h, instead of on every pass. The Plan page shows the next
+attempt; a manual **Replicate** retries immediately.
+
+## `database`
+
+qbt-replicator keeps an embedded SQLite database (no separate server to run) with:
+
+- the **history** of every executed action (History page, `qbt-replicator history`);
+- the **activity log** (Activity page, `qbt-replicator events`), surviving restarts;
+- planner memory (orphan confirmations, retry backoff).
+
+Configuration and rules stay in the YAML file.
+
+| Key | Default | Description |
+|---|---|---|
+| `database.url` | `qbt-replicator.db` next to the config file | `sqlite:///absolute/path.db`, `sqlite://relative/path.db` or `memory` (nothing kept across restarts). Also settable with `QBTR_DATABASE_URL`. Restart required. |
+| `database.retention` | `90d` | How long history and activity are kept: `30d`, `720h`, … `0` keeps everything. Pruned hourly. |
+
+The database is a single file plus `-wal`/`-shm` companions while running; back up the
+whole `/config` directory. CLI commands run inside the container (`docker exec … qbt-replicator history`)
+share it with the daemon. Dry runs and passes with nothing to do are not recorded.
 
 ## `instances`
 
@@ -272,6 +295,9 @@ daemon:
   interval: 2s
   dry_run: false
   orphan_grace_period: 2m
+
+database:
+  retention: 90d                    # url defaults to /config/qbt-replicator.db
 
 instances:
   - name: qbt-1

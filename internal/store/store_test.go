@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -49,7 +50,7 @@ func TestFileMigrationsIdempotent(t *testing.T) {
 	if err != nil || string(v) != "v" {
 		t.Fatalf("Get = %q, %v", v, err)
 	}
-	if _, err := s.Get(ctx, "missing"); err != ErrNotFound {
+	if _, err := s.Get(ctx, "missing"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("missing key err = %v", err)
 	}
 }

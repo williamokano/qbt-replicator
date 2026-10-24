@@ -167,8 +167,8 @@ details.menu[open] > summary { background:var(--accent); color:#fff; }
 .menu-items { position:absolute; right:0; top:calc(100% + 4px); z-index:30; width:max-content; min-width:16rem; max-width:min(22rem, 90vw);
   background:var(--card); border:1px solid var(--line); border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,.18); padding:.3rem; }
 .menu-items form { display:block; margin:0; }
-.menu-items button.item { display:block; width:100%; min-height:0; text-align:left; background:transparent; color:var(--fg);
+.menu-items .item { display:block; box-sizing:border-box; text-decoration:none; width:100%; min-height:0; text-align:left; background:transparent; color:var(--fg);
   border:0; border-radius:6px; padding:.5rem .65rem; font-size:14px; }
-.menu-items button.item:hover, .menu-items button.item:focus-visible { background:var(--bg); outline:none; }
-.menu-items button.item small { display:block; margin-top:.1rem; color:var(--muted); font-size:12px; font-weight:normal; }
+.menu-items .item:hover, .menu-items .item:focus-visible { background:var(--bg); outline:none; }
+.menu-items .item small { display:block; margin-top:.1rem; color:var(--muted); font-size:12px; font-weight:normal; }
 .menu-items button.item.danger { color:var(--err); }

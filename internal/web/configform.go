@@ -150,6 +150,12 @@ func configFromForm(r *http.Request, base *config.Config) (*config.Config, error
 	if v := strings.TrimSpace(f.Get("daemon_exclude_tag")); v != "" {
 		cfg.Daemon.ExcludeTag = v
 	}
+	if v := strings.TrimSpace(f.Get("database_retention")); v != "" {
+		if _, err := config.ParseDays(v); err != nil {
+			errs = append(errs, "History retention: "+err.Error())
+		}
+		cfg.Database.Retention = v
+	}
 	cfg.Server.Auth.Username = strings.TrimSpace(f.Get("auth_username"))
 	switch pw := f.Get("auth_password"); {
 	case checked(f, "auth_clear"):

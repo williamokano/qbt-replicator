@@ -17,6 +17,7 @@
     <a href="{{url "/"}}" {{if eq .Page "dashboard"}}class="active"{{end}}>Dashboard</a>
     <a href="{{url "torrents"}}" {{if eq .Page "torrents"}}class="active"{{end}}>Torrents</a>
     <a href="{{url "plan"}}" {{if eq .Page "plan"}}class="active"{{end}}>Plan</a>
+    <a href="{{url "history"}}" {{if eq .Page "history"}}class="active"{{end}}>History</a>
     <a href="{{url "events"}}" {{if eq .Page "events"}}class="active"{{end}}>Activity</a>
     <a href="{{url "config"}}" {{if hasPrefix .Page "config"}}class="active"{{end}}>Config</a>
   </nav>

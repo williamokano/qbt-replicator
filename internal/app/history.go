@@ -11,12 +11,20 @@ import (
 
 // History returns executed actions, newest first.
 func (s *Service) History(ctx context.Context, f store.ActionFilter) ([]store.ActionRecord, error) {
-	return s.store.ListActions(ctx, f)
+	out, err := s.store.ListActions(ctx, f)
+	if out == nil && err == nil {
+		out = []store.ActionRecord{}
+	}
+	return out, err
 }
 
 // EventHistory returns persisted activity log entries, newest first.
 func (s *Service) EventHistory(ctx context.Context, f store.EventFilter) ([]events.Event, error) {
-	return s.store.ListEvents(ctx, f)
+	out, err := s.store.ListEvents(ctx, f)
+	if out == nil && err == nil {
+		out = []events.Event{}
+	}
+	return out, err
 }
 
 // HistoryStats counts executed actions since t.

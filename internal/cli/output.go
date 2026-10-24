@@ -1,11 +1,9 @@
 package cli
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -14,6 +12,7 @@ import (
 	"github.com/williamokano/qbt-replicator/internal/app"
 	"github.com/williamokano/qbt-replicator/internal/events"
 	"github.com/williamokano/qbt-replicator/internal/replicator"
+	"github.com/williamokano/qbt-replicator/internal/store"
 )
 
 func newTable(w io.Writer) *tabwriter.Writer {
@@ -172,34 +171,34 @@ func CellLabel(c app.Cell) string {
 	}
 }
 
-func remoteEvents(ctx context.Context, w io.Writer, g *globals, limit int) error {
-	u := localURL(g.cfg.Server.Listen, g.cfg.Server.BasePath) + "api/v1/events?limit=" + strconv.Itoa(limit)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return err
-	}
-	if a := g.cfg.Server.Auth; a.Enabled() {
-		req.SetBasicAuth(a.Username, a.Password)
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("is the daemon running? %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("%s returned %d", u, resp.StatusCode)
-	}
-	var evs []events.Event
-	if err := json.NewDecoder(resp.Body).Decode(&evs); err != nil {
-		return err
-	}
-	if g.output == "json" {
+func printEvents(w io.Writer, format string, evs []events.Event) error {
+	if format == "json" {
 		return printJSON(w, evs)
 	}
 	tw := newTable(w)
 	fmt.Fprintln(tw, "TIME\tLEVEL\tKIND\tINSTANCE\tMESSAGE")
 	for _, e := range evs {
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", e.Time.Format(time.DateTime), e.Level, e.Kind, dash(e.Instance), e.Message)
+	}
+	return tw.Flush()
+}
+
+func printHistory(w io.Writer, format string, acts []store.ActionRecord) error {
+	if format == "json" {
+		return printJSON(w, acts)
+	}
+	tw := newTable(w)
+	fmt.Fprintln(tw, "TIME\tRESULT\tACTION\tINSTANCES\tTORRENT\tDETAILS")
+	for _, a := range acts {
+		inst := a.Target
+		if a.Source != "" {
+			inst = a.Source + " -> " + a.Target
+		}
+		detail := a.Reason
+		if a.Error != "" {
+			detail = a.Error
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", a.Time.Format(time.DateTime), a.Result, a.Type, inst, trunc(a.Name, 50), detail)
 	}
 	return tw.Flush()
 }

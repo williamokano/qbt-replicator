@@ -56,6 +56,7 @@
       <details class="menu">
         <summary aria-label="More actions">More <span aria-hidden="true">▾</span></summary>
         <div class="menu-items">
+          <a class="item" href="{{url "history"}}?hash={{$row.Hash}}">History<small>What qbt-replicator did with this torrent</small></a>
           {{if $row.Complete}}
           <form method="post" action="{{url "actions/replicate"}}">
             <input type="hidden" name="hash" value="{{$row.Hash}}">

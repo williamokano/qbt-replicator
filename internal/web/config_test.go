@@ -123,7 +123,7 @@ func baseForm() url.Values {
 	return url.Values{
 		"daemon_enabled": {"on"}, "daemon_interval": {"2s"}, "daemon_concurrency": {"2"},
 		"daemon_orphan_grace_ticks": {"2"}, "daemon_orphan_grace_period": {"1m"},
-		"daemon_replica_tag": {"qbtr-replica"}, "daemon_exclude_tag": {"qbtr-exclude"}, "log_level": {"info"},
+		"daemon_replica_tag": {"qbtr-replica"}, "daemon_exclude_tag": {"qbtr-exclude"}, "log_level": {"info"}, "database_retention": {"30d"},
 		"inst-0-orig": {"a"}, "inst-0-name": {"a"}, "inst-0-url": {"http://a:8080"}, "inst-0-password": {""},
 		"inst-1-orig": {"b"}, "inst-1-name": {"b"}, "inst-1-url": {"http://b2:8080"}, "inst-1-password": {"${B_PW}"},
 		"rule-0-name": {"r"}, "rule-0-sources": {"a"}, "rule-0-targets": {"*"}, "rule-0-settle_delay": {"30s"},
@@ -150,6 +150,9 @@ func TestConfigFormSaves(t *testing.T) {
 		cfg.Instances[0].Password != "top#secret" || cfg.Instances[1].Password != "from-env" {
 		t.Fatalf("not applied: %+v %+v", cfg.Daemon, cfg.Instances)
 	}
+	if cfg.Database.RetentionDur != 30*24*time.Hour {
+		t.Errorf("retention not applied: %+v", cfg.Database)
+	}
 	r := cfg.Rules[0]
 	if r.Filter.NameRE == nil || len(r.Filter.Categories) != 2 || r.SettleDelay.String() != "30s" || r.Filter.IncludePrivate {
 		t.Fatalf("rule not applied: %+v", r)
@@ -166,10 +169,11 @@ func TestConfigFormRejectsInvalid(t *testing.T) {
 	before, _ := os.ReadFile(path)
 	v := baseForm()
 	v.Set("daemon_interval", "soon")
+	v.Set("database_retention", "forever")
 	v.Set("rule-0-name_regex", "(")
 	rec := formPost(h, v)
 	body := rec.Body.String()
-	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(body, "Not saved") || !strings.Contains(body, "not a duration") {
+	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(body, "Not saved") || !strings.Contains(body, "not a duration") || !strings.Contains(body, "History retention") {
 		t.Fatalf("expected validation errors, got %d", rec.Code)
 	}
 	if !strings.Contains(body, `value="http://b2:8080"`) {
@@ -181,6 +185,7 @@ func TestConfigFormRejectsInvalid(t *testing.T) {
 	}
 	// Valid durations but a bad regex is caught by config validation.
 	v.Set("daemon_interval", "2s")
+	v.Set("database_retention", "90d")
 	if rec := formPost(h, v); rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "name_regex") {
 		t.Fatalf("regex error not reported: %d", rec.Code)
 	}

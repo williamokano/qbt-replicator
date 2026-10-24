@@ -74,6 +74,7 @@ The configuration file is looked up in this order:
 		newUnreplicateCmd(g),
 		newIncludeCmd(g),
 		newEventsCmd(g),
+		newHistoryCmd(g),
 		newConfigCmd(g),
 		newHealthcheckCmd(g),
 		newVersionCmd(),

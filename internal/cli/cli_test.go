@@ -2,10 +2,14 @@ package cli
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/williamokano/qbt-replicator/internal/qbt"
+	"github.com/williamokano/qbt-replicator/internal/qbt/fake"
 )
 
 func TestLocalURL(t *testing.T) {
@@ -79,5 +83,36 @@ func TestConfigInit(t *testing.T) {
 	}
 	if out, err := run(t, "-c", path, "config", "validate"); err != nil || !strings.Contains(out, "OK (0 instances") {
 		t.Fatalf("starter should validate: %v %s", err, out)
+	}
+}
+
+func TestHistoryAcrossCommands(t *testing.T) {
+	a, b := fake.New(true, "", ""), fake.New(true, "", "")
+	defer a.Close()
+	defer b.Close()
+	a.Seed(qbt.Torrent{Hash: "h1", Name: "Linux ISO", SavePath: "/data", Size: 42}, nil, false)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	doc := fmt.Sprintf("instances:\n  - {name: a, url: %q}\n  - {name: b, url: %q}\nrules:\n  - {name: r, sources: [a], settle_delay: 0s}\n", a.URL, b.URL)
+	if err := os.WriteFile(path, []byte(doc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := run(t, "-c", path, "sync"); err != nil {
+		t.Fatalf("sync: %v %s", err, out)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "qbt-replicator.db")); err != nil {
+		t.Fatalf("database not created next to the config: %v", err)
+	}
+	out, err := run(t, "-c", path, "history", "linux")
+	if err != nil || !strings.Contains(out, "a -> b") || !strings.Contains(out, "Linux ISO") {
+		t.Fatalf("history: %v %s", err, out)
+	}
+	out, err = run(t, "-c", path, "-o", "json", "history", "--type", "remove")
+	if err != nil || strings.TrimSpace(out) != "[]" {
+		t.Fatalf("filtered history: %v %s", err, out)
+	}
+	out, err = run(t, "-c", path, "events", "--hash", "h1")
+	if err != nil || !strings.Contains(out, "INFO") && !strings.Contains(out, "info") {
+		t.Fatalf("events: %v %s", err, out)
 	}
 }
