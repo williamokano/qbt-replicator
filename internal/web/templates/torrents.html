@@ -1,26 +1,33 @@
 {{define "content"}}
 <h2>Torrents</h2>
-<form method="get" class="toolbar">
-  <input type="search" name="search" placeholder="name or hash" value="{{.Filter.Search}}">
-  <input type="text" name="category" placeholder="category" value="{{.Filter.Category}}">
-  <select name="instance">
-    <option value="">any instance</option>
+<form method="get" class="filters" id="torrent-filters">
+  <input type="search" name="search" value="{{.Filter.Search}}" placeholder="Search name or hash… (fuzzy)" aria-label="Search name or hash" autocomplete="off" {{if .Filter.Search}}autofocus{{end}}>
+  <select name="category" aria-label="Category">
+    <option value="">All categories</option>
+    {{range .Categories}}<option value="{{.}}" {{if eq . $.Filter.Category}}selected{{end}}>{{.}}</option>{{end}}
+  </select>
+  <select name="instance" aria-label="Instance">
+    <option value="">All instances</option>
     {{range .Instances}}<option {{if eq . $.Filter.Instance}}selected{{end}}>{{.}}</option>{{end}}
   </select>
-  <label><input type="checkbox" name="completed" {{if .Filter.Completed}}checked{{end}}> completed only</label>
-  <label><input type="checkbox" name="fresh"> fresh</label>
+  <label class="check"><input type="checkbox" name="completed" {{if .Filter.Completed}}checked{{end}}> Completed only</label>
   <button type="submit">Filter</button>
+  {{if or .Filter.Search .Filter.Category .Filter.Instance .Filter.Completed}}<a href="{{url "torrents"}}">Clear</a>{{end}}
+  <a href="?{{.Query}}&fresh=1" title="Fetch fresh state from every instance">Refresh</a>
 </form>
-<p class="muted">{{len .Rows}} torrent(s). "source" = downloaded there; "replica" = added by qbt-replicator.</p>
-<table class="matrix">
-  <tr><th>Name</th><th>Size</th>{{range .Instances}}<th>{{.}}</th>{{end}}<th>Up</th><th>Actions</th></tr>
+<p class="muted small">{{len .Rows}} torrent(s){{if .Filter.Search}}, best matches first{{end}}. <span class="cell source">source</span> = downloaded there;
+<span class="cell replica">replica</span> = added by qbt-replicator.</p>
+<table class="matrix stack">
+  <tr class="head"><th>Name</th><th>Size</th>{{range .Instances}}<th>{{.}}</th>{{end}}<th>Up</th><th>Actions</th></tr>
   {{range $row := .Rows}}
   <tr>
-    <td>{{$row.Name}}<br><code class="muted small">{{$row.Hash}}</code>{{if $row.Category}} <span class="badge">{{$row.Category}}</span>{{end}}</td>
-    <td class="nowrap">{{bytes $row.Size}}</td>
+    <td class="name"><span class="tname">{{$row.Name}}</span>
+      <span class="meta"><code class="muted small" title="{{$row.Hash}}">{{short $row.Hash}}</code>{{if $row.Category}} <span class="badge">{{$row.Category}}</span>{{end}}
+      {{if $row.Excluded}}<span class="badge warn" title="Tagged with the exclude tag: no rule replicates it">excluded</span>{{end}}</span></td>
+    <td class="nowrap" data-label="Size">{{bytes $row.Size}}</td>
     {{range $.Instances}}{{$c := index $row.Cells .}}
-      <td class="cell {{if not $c.Present}}absent{{else if $c.Replica}}replica{{else}}source{{end}}" title="{{$c.State}} {{$c.SavePath}}">
-        {{cell $c}}{{if $c.Present}}<br><span class="muted small">{{$c.State}} · r {{ratio $c.Ratio}}</span>{{end}}
+      <td class="cell {{if not $c.Present}}absent{{else if $c.Replica}}replica{{else}}source{{end}}" data-label="{{.}}" title="{{$c.State}} {{$c.SavePath}}">
+        {{cell $c}}{{if $c.Present}} <span class="muted small">{{$c.State}} · r {{ratio $c.Ratio}}</span>{{end}}
         {{if $c.Replica}}
         <form method="post" action="{{url "actions/unreplicate"}}" class="inline" onsubmit="return confirm('Remove this replica from {{.}}? Files are kept.')">
           <input type="hidden" name="hash" value="{{$row.Hash}}">
@@ -31,38 +38,54 @@
         {{end}}
       </td>
     {{end}}
-    <td class="nowrap">{{bytes $row.TotalUp}}/s</td>
-    <td class="actions">
-      {{if $row.Complete}}
-      <form method="post" action="{{url "actions/replicate"}}">
-        <input type="hidden" name="hash" value="{{$row.Hash}}">
-        <input type="hidden" name="return" value="{{$.Return}}">
-        <label class="small"><input type="checkbox" name="force"> force</label>
-        <button type="submit" title="Replicate to the targets of the rules for its source instance">Replicate</button>
-      </form>
-      {{end}}
-      <form method="post" action="{{url "actions/unreplicate"}}" onsubmit="return confirm('Remove ALL replicas of this torrent? Files are kept. Rules may add them again.')">
-        <input type="hidden" name="hash" value="{{$row.Hash}}">
-        <input type="hidden" name="return" value="{{$.Return}}">
-        <button type="submit" class="secondary" title="Remove every replica (files kept); rules may re-add it">Unreplicate all</button>
-      </form>
+    <td class="nowrap" data-label="Up">{{bytes $row.TotalUp}}/s</td>
+    <td class="actions"><div class="btns">
       {{if $row.Excluded}}
-      <span class="badge warn" title="Tagged with the exclude tag: no rule replicates it">excluded</span>
       <form method="post" action="{{url "actions/include"}}">
         <input type="hidden" name="hash" value="{{$row.Hash}}">
         <input type="hidden" name="return" value="{{$.Return}}">
-        <button type="submit" class="secondary" title="Remove the exclude tag so rules replicate it again">Include again</button>
+        <button type="submit" title="Remove the exclude tag so rules replicate it again">Include again</button>
       </form>
-      {{else}}
-      <form method="post" action="{{url "actions/unreplicate"}}" onsubmit="return confirm('Remove all replicas AND exclude this torrent from replication until you include it again? Files are kept.')">
+      {{else if $row.Complete}}
+      <form method="post" action="{{url "actions/replicate"}}">
         <input type="hidden" name="hash" value="{{$row.Hash}}">
-        <input type="hidden" name="exclude" value="true">
         <input type="hidden" name="return" value="{{$.Return}}">
-        <button type="submit" class="secondary" title="Tag the source so no rule replicates it, then remove every replica (files kept)">Remove &amp; exclude</button>
+        <button type="submit" title="Replicate to the targets of the rules for its source instance">Replicate</button>
       </form>
       {{end}}
-    </td>
+      <details class="menu">
+        <summary aria-label="More actions">More <span aria-hidden="true">▾</span></summary>
+        <div class="menu-items">
+          {{if $row.Complete}}
+          <form method="post" action="{{url "actions/replicate"}}">
+            <input type="hidden" name="hash" value="{{$row.Hash}}">
+            <input type="hidden" name="force" value="true">
+            <input type="hidden" name="return" value="{{$.Return}}">
+            <button type="submit" class="item">Force replicate<small>Ignore the rule filters (private, settle delay, …)</small></button>
+          </form>
+          {{end}}
+          {{if $row.Replicas}}
+          <form method="post" action="{{url "actions/unreplicate"}}" onsubmit="return confirm('Remove ALL replicas of this torrent? Files are kept. Rules may add them again.')">
+            <input type="hidden" name="hash" value="{{$row.Hash}}">
+            <input type="hidden" name="return" value="{{$.Return}}">
+            <button type="submit" class="item">Unreplicate all<small>Remove every replica (files kept); rules may re-add it</small></button>
+          </form>
+          {{end}}
+          {{if not $row.Excluded}}
+          <form method="post" action="{{url "actions/unreplicate"}}" onsubmit="return confirm('Remove all replicas AND exclude this torrent from replication until you include it again? Files are kept.')">
+            <input type="hidden" name="hash" value="{{$row.Hash}}">
+            <input type="hidden" name="exclude" value="true">
+            <input type="hidden" name="return" value="{{$.Return}}">
+            <button type="submit" class="item danger">Remove &amp; exclude<small>Never replicate it again (until included); files kept</small></button>
+          </form>
+          {{end}}
+        </div>
+      </details>
+    </div></td>
   </tr>
+  {{else}}
+  <tr><td colspan="99" class="muted">No torrents match.</td></tr>
   {{end}}
 </table>
+<script src="{{url "static/torrents.js"}}"></script>
 {{end}}

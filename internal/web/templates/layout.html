@@ -2,22 +2,24 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1f2024" media="(prefers-color-scheme: dark)">
 {{if .Refresh}}<meta http-equiv="refresh" content="{{.Refresh}}">{{end}}
 <title>qbt-replicator · {{.Page}}</title>
 <link rel="stylesheet" href="{{url "static/style.css"}}">
 </head>
 <body>
 <header>
-  <strong>qbt-replicator</strong>
-  <nav>
+  <a class="brand" href="{{url "/"}}">qbt-replicator</a>
+  <span class="ver muted small">{{.Version}}{{if .DryRun}} · <span class="warn">DRY RUN</span>{{end}}</span>
+  <nav aria-label="Main">
     <a href="{{url "/"}}" {{if eq .Page "dashboard"}}class="active"{{end}}>Dashboard</a>
     <a href="{{url "torrents"}}" {{if eq .Page "torrents"}}class="active"{{end}}>Torrents</a>
     <a href="{{url "plan"}}" {{if eq .Page "plan"}}class="active"{{end}}>Plan</a>
     <a href="{{url "events"}}" {{if eq .Page "events"}}class="active"{{end}}>Activity</a>
     <a href="{{url "config"}}" {{if hasPrefix .Page "config"}}class="active"{{end}}>Config</a>
   </nav>
-  <span class="muted">{{.Version}}{{if .DryRun}} · <span class="warn">DRY RUN</span>{{end}}</span>
 </header>
 <main>
 {{if .Flash}}<p class="flash ok">{{.Flash}}</p>{{end}}
