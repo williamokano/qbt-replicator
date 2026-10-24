@@ -144,3 +144,12 @@ func TestBasicAuthAndBasePath(t *testing.T) {
 		t.Errorf("base redirect: %d", rec.Code)
 	}
 }
+
+func TestPlanPageExplainsSkippedTorrents(t *testing.T) {
+	h, a, _ := setup(t, "")
+	a.Seed(qbt.Torrent{Hash: "p1", Name: "Private Thing", SavePath: "/data"}, nil, true)
+	body := do(h, http.MethodGet, "/plan", nil, nil).Body.String()
+	if !strings.Contains(body, "Private Thing") || !strings.Contains(body, "include_private") {
+		t.Errorf("plan page does not explain the private skip:\n%s", body)
+	}
+}

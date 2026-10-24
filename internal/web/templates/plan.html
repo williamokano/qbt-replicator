@@ -14,6 +14,18 @@
   <button type="submit">Run these now</button>
 </form>
 {{else}}<p>Nothing to do. Everything is in sync.</p>{{end}}
+<h3>Completed but not replicated</h3>
+{{if .Plan.Skipped}}
+<p class="muted">Completed torrents on a rule's source that a target still lacks, and why they are skipped.
+Use <em>Replicate</em> with <em>force</em> on the Torrents page to override the rule filters for one torrent.</p>
+<table>
+  <tr><th>Torrent</th><th>Source → Target</th><th>Rule</th><th>Reason</th></tr>
+  {{range .Plan.Skipped}}
+  <tr><td>{{.Name}} <code>{{short .Hash}}</code></td><td>{{.Source}} → {{if .Target}}{{.Target}}{{else}}all targets{{end}}</td>
+      <td>{{.Rule}}</td><td>{{.Reason}}</td></tr>
+  {{end}}
+</table>
+{{else}}<p class="muted">None: every completed source torrent is replicated or planned.</p>{{end}}
 {{if .Plan.Notes}}
 <h3>Notes</h3>
 <ul>{{range .Plan.Notes}}<li>{{.}}</li>{{end}}</ul>

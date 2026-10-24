@@ -45,6 +45,8 @@
   </table>
   {{end}}
   {{range .Plan.Notes}}<p class="muted small">note: {{.}}</p>{{end}}
+  {{with .Plan.Skipped}}<p class="small"><span class="warn">{{len .}} completed torrent(s) not replicated</span> ·
+    <a href="{{url "plan"}}">see why</a></p>{{end}}
 {{else}}
   <p class="muted">No pass has run yet.</p>
 {{end}}
