@@ -127,6 +127,7 @@ See the fully commented [`config.example.yaml`](config.example.yaml). Summary:
 | `daemon.dry_run` | `false` | log actions, change nothing |
 | `daemon.replica_tag` | `qbtr-replica` | tag that marks torrents owned by the replicator |
 | `daemon.orphan_grace_ticks` | `2` | passes a replica must be orphaned before removal |
+| `daemon.exclude_tag` | `qbtr-exclude` | source torrents with this tag are never replicated (set by *Remove & exclude*) |
 | `daemon.state_file` | `state.json` next to config | `none` disables persistence |
 | `instances[].name/url/username/password` | | WebUI access (empty user+password = auth bypass/whitelist) |
 | `instances[].password_file` | | read password from a file |
@@ -153,7 +154,8 @@ qbt-replicator status                                 # health, connection statu
 qbt-replicator instances list | check
 qbt-replicator torrents list [--instance X] [--search S] [--category C] [--completed]
 qbt-replicator replicate <hash> [--from X] [--to Y,Z] [--force] [--dry-run]   # default targets: the rules for the source
-qbt-replicator unreplicate <hash> [--on Y] [--dry-run]   # refuses non-replicas
+qbt-replicator unreplicate <hash> [--on Y] [--exclude] [--dry-run]   # refuses non-replicas; --exclude keeps rules from re-adding it
+qbt-replicator include <hash>                         # undo --exclude: rules replicate it again
 qbt-replicator events [--limit 50]                    # activity log of the running daemon
 qbt-replicator config init | validate | show          # init writes a starter file; show redacts secrets
 qbt-replicator healthcheck [--url ...]                # used by Docker HEALTHCHECK
@@ -175,7 +177,8 @@ Inside Docker: `docker exec qbt-replicator /qbt-replicator plan`.
 | GET | `/api/v1/status[?fresh=1]`, `/api/v1/torrents`, `/api/v1/plan`, `/api/v1/events?limit=N`, `/api/v1/config` | JSON |
 | POST | `/api/v1/sync` `{"dry_run":bool}` | run a pass, returns the report |
 | POST | `/api/v1/replicate` `{"hash","from","to":[],"force","dry_run"}` | manual replication |
-| POST | `/api/v1/unreplicate` `{"hash","on":[],"dry_run"}` | remove replicas (files kept) |
+| POST | `/api/v1/unreplicate` `{"hash","on":[],"exclude","dry_run"}` | remove replicas (files kept); `exclude` tags the source so rules skip it |
+| POST | `/api/v1/include` `{"hash","dry_run"}` | remove the exclude tag again |
 | GET | `/healthz`, `/readyz`, `/metrics` | ops |
 
 Cross-origin POSTs are rejected (CSRF protection).

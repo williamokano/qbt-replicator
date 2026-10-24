@@ -348,23 +348,35 @@ func defaultManualRule() config.RuleConfig {
 	}
 }
 
-// Unreplicate removes replicas of hash (files kept). on empty means every instance holding a replica.
-func (e *Engine) Unreplicate(ctx context.Context, hash string, on []string, dryRun bool) ([]Result, error) {
+// UnreplicateRequest describes a manual replica removal.
+type UnreplicateRequest struct {
+	Hash string
+	On   []string // empty: every instance holding a replica
+	// Exclude also tags the source torrent(s) with daemon.exclude_tag first, so
+	// no rule replicates it again until it is included again.
+	Exclude bool
+	DryRun  bool
+}
+
+// Unreplicate removes replicas of a torrent (files kept), optionally excluding
+// the torrent from future replication.
+func (e *Engine) Unreplicate(ctx context.Context, req UnreplicateRequest) ([]Result, error) {
 	e.runMu.Lock()
 	defer e.runMu.Unlock()
 	snap := e.Snapshot(ctx)
 	tag := e.cfg.Daemon.ReplicaTag
+	hash, on := req.Hash, req.On
 	if len(on) == 0 {
 		for _, n := range snap.Order {
 			if t, ok := snap.Instances[n].Torrents[hash]; ok && t.HasTag(tag) {
 				on = append(on, n)
 			}
 		}
-		if len(on) == 0 {
+		if len(on) == 0 && !req.Exclude {
 			return nil, fmt.Errorf("no replicas of %s found", hash)
 		}
 	}
-	var actions []Action
+	var removes []Action
 	for _, n := range on {
 		st, ok := snap.Instances[n]
 		if !ok {
@@ -380,8 +392,68 @@ func (e *Engine) Unreplicate(ctx context.Context, hash string, on []string, dryR
 		if !t.HasTag(tag) {
 			return nil, fmt.Errorf("%s on %s: %w", hash, n, ErrNotReplica)
 		}
-		actions = append(actions, Action{Type: ActionRemove, Hash: hash, Name: t.Name, Target: n, Reason: "manual unreplicate (files kept)"})
+		removes = append(removes, Action{Type: ActionRemove, Hash: hash, Name: t.Name, Target: n, Reason: "manual unreplicate (files kept)"})
 	}
-	exec := e.exec.withDryRun(dryRun || e.cfg.Daemon.DryRun)
-	return exec.Execute(ctx, actions), nil
+	exec := e.exec.withDryRun(req.DryRun || e.cfg.Daemon.DryRun)
+	var results []Result
+	if req.Exclude {
+		// Tag the sources first so a concurrent pass cannot re-add the replicas.
+		excl, err := e.tagActions(snap, hash, ActionExclude)
+		if err != nil {
+			return nil, err
+		}
+		results = exec.Execute(ctx, excl)
+		for _, r := range results {
+			if r.Error != "" {
+				return results, fmt.Errorf("excluding on %s failed, replicas kept: %s", r.Action.Target, r.Error)
+			}
+		}
+	}
+	return append(results, exec.Execute(ctx, removes)...), nil
+}
+
+// Include removes daemon.exclude_tag from the torrent's sources so rules apply again.
+func (e *Engine) Include(ctx context.Context, hash string, dryRun bool) ([]Result, error) {
+	e.runMu.Lock()
+	defer e.runMu.Unlock()
+	acts, err := e.tagActions(e.Snapshot(ctx), hash, ActionInclude)
+	if err != nil {
+		return nil, err
+	}
+	results := e.exec.withDryRun(dryRun || e.cfg.Daemon.DryRun).Execute(ctx, acts)
+	e.Trigger()
+	return results, nil
+}
+
+// tagActions builds exclude/include actions for every reachable source copy.
+func (e *Engine) tagActions(snap *Snapshot, hash string, typ ActionType) ([]Action, error) {
+	excl := e.cfg.Daemon.ExcludeTag
+	var acts []Action
+	for _, n := range snap.Order {
+		st := snap.Instances[n]
+		if st == nil || !st.Healthy {
+			continue
+		}
+		t, ok := st.Torrents[hash]
+		if !ok || t.HasTag(e.cfg.Daemon.ReplicaTag) || (typ == ActionExclude) == t.HasTag(excl) {
+			continue
+		}
+		reason := "excluded from replication (tag " + excl + ")"
+		if typ == ActionInclude {
+			reason = "included in replication again (removed tag " + excl + ")"
+		}
+		acts = append(acts, Action{Type: typ, Hash: hash, Name: t.Name, Target: n, Tags: []string{excl}, Reason: reason})
+	}
+	if len(acts) == 0 {
+		found := false
+		for _, n := range snap.Order {
+			if t, ok := snap.Instances[n].Torrents[hash]; ok && !t.HasTag(e.cfg.Daemon.ReplicaTag) {
+				found = true
+			}
+		}
+		if !found {
+			return nil, fmt.Errorf("no source copy of %s found on a reachable instance", hash)
+		}
+	}
+	return acts, nil
 }

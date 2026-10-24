@@ -170,3 +170,29 @@ func TestTorrentsPageRemovesSingleReplica(t *testing.T) {
 		t.Fatalf("remove single replica: %d %v", rec.Code, b.Hashes())
 	}
 }
+
+func TestRemoveAndExcludeFromUI(t *testing.T) {
+	h, a, b := setup(t, "")
+	if rec := do(h, http.MethodPost, "/api/v1/replicate", strings.NewReader(`{"hash":"h1"}`), nil); rec.Code != 200 {
+		t.Fatalf("replicate: %d", rec.Code)
+	}
+	form := url.Values{"hash": {"h1"}, "exclude": {"true"}, "return": {"/torrents"}}
+	rec := do(h, http.MethodPost, "/actions/unreplicate", strings.NewReader(form.Encode()),
+		map[string]string{"Content-Type": "application/x-www-form-urlencoded"})
+	if rec.Code != http.StatusSeeOther || len(b.Hashes()) != 0 {
+		t.Fatalf("remove & exclude: %d %v", rec.Code, b.Hashes())
+	}
+	if e, _ := a.Get("h1"); !e.Torrent.HasTag("qbtr-exclude") {
+		t.Fatal("source not excluded")
+	}
+	body := do(h, http.MethodGet, "/torrents?fresh=1", nil, nil).Body.String()
+	if !strings.Contains(body, "Include again") {
+		t.Fatal("include button missing for excluded torrent")
+	}
+	if rec := do(h, http.MethodPost, "/api/v1/include", strings.NewReader(`{"hash":"h1"}`), nil); rec.Code != 200 {
+		t.Fatalf("include: %d %s", rec.Code, rec.Body.String())
+	}
+	if e, _ := a.Get("h1"); e.Torrent.HasTag("qbtr-exclude") {
+		t.Fatal("still excluded")
+	}
+}

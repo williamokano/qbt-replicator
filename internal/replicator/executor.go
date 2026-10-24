@@ -129,6 +129,10 @@ func (e *Executor) apply(ctx context.Context, a Action) error {
 		return tgt.Recheck(ctx, a.Hash)
 	case ActionStop:
 		return tgt.Stop(ctx, a.Hash)
+	case ActionExclude:
+		return tgt.AddTags(ctx, []string{a.Hash}, a.Tags...)
+	case ActionInclude:
+		return tgt.RemoveTags(ctx, []string{a.Hash}, a.Tags...)
 	case ActionSyncLimits:
 		return tgt.SetShareLimits(ctx, a.Hash, a.RatioLimit, a.SeedingTimeLimit, a.InactiveSeedingTime)
 	default:

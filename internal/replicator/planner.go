@@ -21,6 +21,9 @@ const (
 	ActionRecheck    ActionType = "recheck"
 	ActionStop       ActionType = "stop"
 	ActionSyncLimits ActionType = "sync_limits"
+	// ActionExclude / ActionInclude add or remove daemon.exclude_tag on a source torrent.
+	ActionExclude ActionType = "exclude"
+	ActionInclude ActionType = "include"
 )
 
 // Action is one planned operation on a target instance.
@@ -306,6 +309,9 @@ func missingOn(snap *Snapshot, targets []string, hash string) bool {
 func Eligible(cfg *config.Config, rule config.RuleConfig, src *InstanceState, t qbt.Torrent, now time.Time) (bool, string) {
 	if t.HasTag(cfg.Daemon.ReplicaTag) {
 		return false, "is itself a replica (tagged " + cfg.Daemon.ReplicaTag + "); replicas are never sources"
+	}
+	if cfg.Daemon.ExcludeTag != "" && t.HasTag(cfg.Daemon.ExcludeTag) {
+		return false, "excluded (tagged " + cfg.Daemon.ExcludeTag + "); use Include again to replicate it"
 	}
 	if t.Progress < 1 || !qbt.IsSeedingState(t.State) {
 		return false, "not completed and seeding yet (state " + t.State + ")"

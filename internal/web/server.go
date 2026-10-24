@@ -93,6 +93,7 @@ func newServer(svc *app.Service, logger *slog.Logger) (*Server, error) {
 	mux.HandleFunc("POST /actions/sync", s.actionSync)
 	mux.HandleFunc("POST /actions/replicate", s.actionReplicate)
 	mux.HandleFunc("POST /actions/unreplicate", s.actionUnreplicate)
+	mux.HandleFunc("POST /actions/include", s.actionInclude)
 	mux.HandleFunc("POST /config", s.configSave)
 
 	mux.HandleFunc("GET /api/v1/status", s.apiStatus)
@@ -105,6 +106,7 @@ func newServer(svc *app.Service, logger *slog.Logger) (*Server, error) {
 	mux.HandleFunc("POST /api/v1/sync", s.apiSync)
 	mux.HandleFunc("POST /api/v1/replicate", s.apiReplicate)
 	mux.HandleFunc("POST /api/v1/unreplicate", s.apiUnreplicate)
+	mux.HandleFunc("POST /api/v1/include", s.apiInclude)
 
 	var h http.Handler = mux
 	h = s.sameOrigin(h)

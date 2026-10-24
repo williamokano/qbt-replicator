@@ -542,6 +542,20 @@ func (c *Client) Stop(ctx context.Context, hashes ...string) error {
 	return c.post(ctx, ep, url.Values{"hashes": {strings.Join(hashes, "|")}})
 }
 
+// AddTags adds tags to torrents (tags are created if missing).
+func (c *Client) AddTags(ctx context.Context, hashes []string, tags ...string) error {
+	return c.post(ctx, "api/v2/torrents/addTags", url.Values{
+		"hashes": {strings.Join(hashes, "|")}, "tags": {strings.Join(tags, ",")},
+	})
+}
+
+// RemoveTags removes tags from torrents.
+func (c *Client) RemoveTags(ctx context.Context, hashes []string, tags ...string) error {
+	return c.post(ctx, "api/v2/torrents/removeTags", url.Values{
+		"hashes": {strings.Join(hashes, "|")}, "tags": {strings.Join(tags, ",")},
+	})
+}
+
 // Recheck forces a hash recheck.
 func (c *Client) Recheck(ctx context.Context, hashes ...string) error {
 	return c.post(ctx, "api/v2/torrents/recheck", url.Values{"hashes": {strings.Join(hashes, "|")}})
