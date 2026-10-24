@@ -196,3 +196,21 @@ func TestRemoveAndExcludeFromUI(t *testing.T) {
 		t.Fatal("still excluded")
 	}
 }
+
+func TestTorrentsFuzzySearchAndCategories(t *testing.T) {
+	h, a, _ := setup(t, "")
+	a.Seed(qbt.Torrent{Hash: "f1", Name: "The.Apothecary.Diaries.S03E04.1080p", SavePath: "/data", Category: "anime"}, nil, false)
+	a.Seed(qbt.Torrent{Hash: "f2", Name: "Some.Movie.2024", SavePath: "/data", Category: "radarr"}, nil, false)
+	body := do(h, http.MethodGet, "/torrents?fresh=1&search="+url.QueryEscape("diaries apothecary"), nil, nil).Body.String()
+	if !strings.Contains(body, "Apothecary") || strings.Contains(body, "Some.Movie") {
+		t.Fatal("fuzzy search did not filter by words in any order")
+	}
+	body = do(h, http.MethodGet, "/torrents", nil, nil).Body.String()
+	if !strings.Contains(body, `<option value="anime"`) || !strings.Contains(body, `<option value="radarr"`) {
+		t.Fatal("category dropdown missing known categories")
+	}
+	body = do(h, http.MethodGet, "/torrents?category=radarr", nil, nil).Body.String()
+	if strings.Contains(body, "Apothecary") || !strings.Contains(body, "Some.Movie") {
+		t.Fatal("category filter wrong")
+	}
+}

@@ -199,12 +199,13 @@ func (s *Service) Torrents(ctx context.Context, f TorrentFilter) []TorrentRow {
 		}
 	}
 	out := make([]TorrentRow, 0, len(rows))
-	search := strings.ToLower(f.Search)
+	scores := map[string]int{}
 	for _, r := range rows {
 		if f.Instance != "" && !r.Cells[f.Instance].Present {
 			continue
 		}
-		if search != "" && !strings.Contains(strings.ToLower(r.Name), search) && !strings.HasPrefix(r.Hash, search) {
+		score, ok := matchScore(f.Search, r.Name, r.Hash)
+		if !ok {
 			continue
 		}
 		if f.Category != "" && r.Category != f.Category {
@@ -213,11 +214,35 @@ func (s *Service) Torrents(ctx context.Context, f TorrentFilter) []TorrentRow {
 		if f.Completed && !r.Complete {
 			continue
 		}
+		scores[r.Hash] = score
 		out = append(out, *r)
 	}
 	slices.SortFunc(out, func(a, b TorrentRow) int {
+		if d := scores[b.Hash] - scores[a.Hash]; d != 0 { // best match first when searching
+			return d
+		}
 		return strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
 	})
+	return out
+}
+
+// Categories lists the categories of all known torrents, for filters.
+func (s *Service) Categories(ctx context.Context) []string {
+	snap := s.Engine().LastSnapshot()
+	if snap == nil {
+		snap = s.Engine().Snapshot(ctx)
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, st := range snap.Instances {
+		for _, t := range st.Torrents {
+			if t.Category != "" && !seen[t.Category] {
+				seen[t.Category] = true
+				out = append(out, t.Category)
+			}
+		}
+	}
+	slices.SortFunc(out, func(a, b string) int { return strings.Compare(strings.ToLower(a), strings.ToLower(b)) })
 	return out
 }
 
