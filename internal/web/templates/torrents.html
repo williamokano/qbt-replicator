@@ -40,33 +40,47 @@
     {{end}}
     <td class="nowrap" data-label="Up">{{bytes $row.TotalUp}}/s</td>
     <td class="actions"><div class="btns">
-      {{if $row.Complete}}
-      <form method="post" action="{{url "actions/replicate"}}">
-        <input type="hidden" name="hash" value="{{$row.Hash}}">
-        <input type="hidden" name="return" value="{{$.Return}}">
-        <button type="submit" title="Replicate to the targets of the rules for its source instance">Replicate</button>
-        <label class="small" title="Ignore the rule filters (private, settle delay, …)"><input type="checkbox" name="force"> force</label>
-      </form>
-      {{end}}
-      <form method="post" action="{{url "actions/unreplicate"}}" onsubmit="return confirm('Remove ALL replicas of this torrent? Files are kept. Rules may add them again.')">
-        <input type="hidden" name="hash" value="{{$row.Hash}}">
-        <input type="hidden" name="return" value="{{$.Return}}">
-        <button type="submit" class="secondary" title="Remove every replica (files kept); rules may re-add it">Unreplicate all</button>
-      </form>
       {{if $row.Excluded}}
       <form method="post" action="{{url "actions/include"}}">
         <input type="hidden" name="hash" value="{{$row.Hash}}">
         <input type="hidden" name="return" value="{{$.Return}}">
-        <button type="submit" class="secondary" title="Remove the exclude tag so rules replicate it again">Include again</button>
+        <button type="submit" title="Remove the exclude tag so rules replicate it again">Include again</button>
       </form>
-      {{else}}
-      <form method="post" action="{{url "actions/unreplicate"}}" onsubmit="return confirm('Remove all replicas AND exclude this torrent from replication until you include it again? Files are kept.')">
+      {{else if $row.Complete}}
+      <form method="post" action="{{url "actions/replicate"}}">
         <input type="hidden" name="hash" value="{{$row.Hash}}">
-        <input type="hidden" name="exclude" value="true">
         <input type="hidden" name="return" value="{{$.Return}}">
-        <button type="submit" class="secondary" title="Tag the source so no rule replicates it, then remove every replica (files kept)">Remove &amp; exclude</button>
+        <button type="submit" title="Replicate to the targets of the rules for its source instance">Replicate</button>
       </form>
       {{end}}
+      <details class="menu">
+        <summary aria-label="More actions">More <span aria-hidden="true">▾</span></summary>
+        <div class="menu-items">
+          {{if $row.Complete}}
+          <form method="post" action="{{url "actions/replicate"}}">
+            <input type="hidden" name="hash" value="{{$row.Hash}}">
+            <input type="hidden" name="force" value="true">
+            <input type="hidden" name="return" value="{{$.Return}}">
+            <button type="submit" class="item">Force replicate<small>Ignore the rule filters (private, settle delay, …)</small></button>
+          </form>
+          {{end}}
+          {{if $row.Replicas}}
+          <form method="post" action="{{url "actions/unreplicate"}}" onsubmit="return confirm('Remove ALL replicas of this torrent? Files are kept. Rules may add them again.')">
+            <input type="hidden" name="hash" value="{{$row.Hash}}">
+            <input type="hidden" name="return" value="{{$.Return}}">
+            <button type="submit" class="item">Unreplicate all<small>Remove every replica (files kept); rules may re-add it</small></button>
+          </form>
+          {{end}}
+          {{if not $row.Excluded}}
+          <form method="post" action="{{url "actions/unreplicate"}}" onsubmit="return confirm('Remove all replicas AND exclude this torrent from replication until you include it again? Files are kept.')">
+            <input type="hidden" name="hash" value="{{$row.Hash}}">
+            <input type="hidden" name="exclude" value="true">
+            <input type="hidden" name="return" value="{{$.Return}}">
+            <button type="submit" class="item danger">Remove &amp; exclude<small>Never replicate it again (until included); files kept</small></button>
+          </form>
+          {{end}}
+        </div>
+      </details>
     </div></td>
   </tr>
   {{else}}

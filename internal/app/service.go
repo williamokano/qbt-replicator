@@ -154,6 +154,8 @@ type TorrentRow struct {
 	Cells    map[string]Cell `json:"instances"`
 	TotalUp  int64           `json:"total_up_speed"`
 	Copies   int             `json:"copies"`
+	// Replicas counts copies added by qbt-replicator.
+	Replicas int `json:"replicas"`
 	// Excluded is true when a source copy carries daemon.exclude_tag.
 	Excluded bool `json:"excluded"`
 }
@@ -194,6 +196,9 @@ func (s *Service) Torrents(ctx context.Context, f TorrentFilter) []TorrentRow {
 			}
 			r.Cells[name] = Cell{Present: true, Replica: t.HasTag(tag), State: t.State, Progress: t.Progress,
 				UpSpeed: t.UpSpeed, Ratio: t.Ratio, SavePath: t.SavePath}
+			if t.HasTag(tag) {
+				r.Replicas++
+			}
 			r.TotalUp += t.UpSpeed
 			r.Copies++
 		}

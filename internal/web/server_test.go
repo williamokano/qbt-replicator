@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 
@@ -212,5 +213,30 @@ func TestTorrentsFuzzySearchAndCategories(t *testing.T) {
 	body = do(h, http.MethodGet, "/torrents?category=radarr", nil, nil).Body.String()
 	if strings.Contains(body, "Apothecary") || !strings.Contains(body, "Some.Movie") {
 		t.Fatal("category filter wrong")
+	}
+}
+
+func TestTorrentActionsMenu(t *testing.T) {
+	h, a, b := setup(t, "")
+	a.Seed(qbt.Torrent{Hash: "p1", Name: "Private", SavePath: "/data"}, nil, true)
+	body := do(h, http.MethodGet, "/torrents?fresh=1", nil, nil).Body.String()
+	if strings.Contains(body, `type="checkbox" name="force"`) {
+		t.Fatal("force must not be a checkbox next to the buttons any more")
+	}
+	if !strings.Contains(body, `class="menu"`) || !strings.Contains(body, "Force replicate") || !strings.Contains(body, "Remove &amp; exclude") {
+		t.Fatal("action menu missing")
+	}
+	if strings.Contains(body, "Unreplicate all") {
+		t.Fatal("Unreplicate all shown for torrents without replicas")
+	}
+	// Force replicate from the menu bypasses the private filter.
+	form := url.Values{"hash": {"p1"}, "force": {"true"}, "return": {"/torrents"}}
+	rec := do(h, http.MethodPost, "/actions/replicate", strings.NewReader(form.Encode()),
+		map[string]string{"Content-Type": "application/x-www-form-urlencoded"})
+	if rec.Code != http.StatusSeeOther || !slices.Contains(b.Hashes(), "p1") {
+		t.Fatalf("force replicate failed: %d %s %v", rec.Code, rec.Header().Get("Location"), b.Hashes())
+	}
+	if body := do(h, http.MethodGet, "/torrents?fresh=1", nil, nil).Body.String(); !strings.Contains(body, "Unreplicate all") {
+		t.Fatal("Unreplicate all missing once a replica exists")
 	}
 }
