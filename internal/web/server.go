@@ -103,6 +103,7 @@ func newServer(svc *app.Service, logger *slog.Logger) (*Server, error) {
 	mux.HandleFunc("POST /config", s.configSave)
 	mux.HandleFunc("GET /config/yaml", s.configYAMLPage)
 	mux.HandleFunc("POST /config/form", s.configFormSave)
+	mux.HandleFunc("POST /config/test-instance", s.configTestInstance)
 
 	mux.HandleFunc("GET /api/v1/status", s.apiStatus)
 	mux.HandleFunc("GET /api/v1/torrents", s.apiTorrents)
@@ -110,6 +111,7 @@ func newServer(svc *app.Service, logger *slog.Logger) (*Server, error) {
 	mux.HandleFunc("GET /api/v1/events", s.apiEvents)
 	mux.HandleFunc("GET /api/v1/config", s.apiConfig)
 	mux.HandleFunc("GET /api/v1/config/raw", s.apiConfigRaw)
+	mux.HandleFunc("POST /api/v1/instances/test", s.apiTestInstance)
 	mux.HandleFunc("PUT /api/v1/config/raw", s.apiConfigSave)
 	mux.HandleFunc("POST /api/v1/sync", s.apiSync)
 	mux.HandleFunc("POST /api/v1/replicate", s.apiReplicate)

@@ -1,6 +1,7 @@
 package web
 
 import (
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/williamokano/qbt-replicator/internal/app"
 	"github.com/williamokano/qbt-replicator/internal/config"
+	"github.com/williamokano/qbt-replicator/internal/qbt/fake"
 )
 
 func setupFile(t *testing.T, content string) (http.Handler, *app.Service, string) {
@@ -202,5 +204,41 @@ func TestShortDuration(t *testing.T) {
 		if got := shortDuration(d); got != want {
 			t.Errorf("%v: %q want %q", d, got, want)
 		}
+	}
+}
+
+func TestConfigTestInstanceButton(t *testing.T) {
+	srv := fake.New(true, "admin", "stored-pw")
+	defer srv.Close()
+	doc := strings.ReplaceAll(editable, "http://a:8080", srv.URL)
+	doc = strings.Replace(doc, `password: "top#secret"`, "username: admin\n    password: stored-pw", 1)
+	h, _, _ := setupFile(t, doc)
+	page := do(h, http.MethodGet, "/config", nil, nil).Body.String()
+	if !strings.Contains(page, "data-test") || !strings.Contains(page, `data-test-url="/config/test-instance"`) {
+		t.Fatal("Test button missing")
+	}
+	test := func(v url.Values) app.InstanceTest {
+		t.Helper()
+		rec := do(h, http.MethodPost, "/config/test-instance", strings.NewReader(v.Encode()),
+			map[string]string{"Content-Type": "application/x-www-form-urlencoded"})
+		var res app.InstanceTest
+		if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
+			t.Fatalf("%d %s", rec.Code, rec.Body.String())
+		}
+		return res
+	}
+	// Empty password field: the stored password of the original instance is used.
+	row := url.Values{"inst-7-orig": {"a"}, "inst-7-name": {"a"}, "inst-7-url": {srv.URL}, "inst-7-username": {"admin"}, "inst-7-password": {""}}
+	if res := test(row); !res.OK {
+		t.Fatalf("stored password not used: %+v", res)
+	}
+	row.Set("inst-7-password", "typo")
+	if res := test(row); res.OK || !strings.Contains(res.Message, "Wrong username or password") {
+		t.Fatalf("typed password not tested: %+v", res)
+	}
+	// API: saved instance by name.
+	rec := do(h, http.MethodPost, "/api/v1/instances/test", strings.NewReader(`{"name":"a"}`), nil)
+	if !strings.Contains(rec.Body.String(), `"ok": true`) {
+		t.Fatalf("api test: %s", rec.Body.String())
 	}
 }

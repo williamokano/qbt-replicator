@@ -99,6 +99,22 @@ func (e *formErrors) float(label, s string) float64 {
 	return f
 }
 
+// instanceFromForm reads instance row i on top of the stored instance with the
+// row's original name (keeping path_mappings, password_file, …). An empty
+// password field keeps the stored password.
+func instanceFromForm(f url.Values, i int, old map[string]config.InstanceConfig, errs *formErrors) config.InstanceConfig {
+	name := field(f, "inst", i, "name")
+	in := old[field(f, "inst", i, "orig")]
+	in.Name, in.URL = name, field(f, "inst", i, "url")
+	in.Username = field(f, "inst", i, "username")
+	if pw := f.Get(fmt.Sprintf("inst-%d-password", i)); pw != "" {
+		in.Password = pw
+	}
+	in.InsecureSkipVerify = checked(f, fmt.Sprintf("inst-%d-insecure", i))
+	in.Timeout = errs.duration("Instance "+name+" timeout", field(f, "inst", i, "timeout"), 15*time.Second)
+	return in
+}
+
 // configFromForm applies the form onto a copy of the raw (as-written) config.
 // Settings the form does not show (listen address, path mappings, …) are kept
 // from base; an empty password field keeps the stored password of that instance.
@@ -142,15 +158,7 @@ func configFromForm(r *http.Request, base *config.Config) (*config.Config, error
 		if name == "" && url == "" {
 			continue // blank row
 		}
-		in := oldInst[field(f, "inst", i, "orig")] // keeps path_mappings, password_file, …
-		in.Name, in.URL = name, url
-		in.Username = field(f, "inst", i, "username")
-		if pw := f.Get(fmt.Sprintf("inst-%d-password", i)); pw != "" {
-			in.Password = pw
-		}
-		in.InsecureSkipVerify = checked(f, fmt.Sprintf("inst-%d-insecure", i))
-		in.Timeout = errs.duration("Instance "+name+" timeout", field(f, "inst", i, "timeout"), 15*time.Second)
-		cfg.Instances = append(cfg.Instances, in)
+		cfg.Instances = append(cfg.Instances, instanceFromForm(f, i, oldInst, &errs))
 	}
 
 	cfg.Rules = nil
