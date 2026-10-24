@@ -66,6 +66,9 @@ nav.tabs a.active { color:var(--accent); border-bottom-color:var(--accent); }
 .cm-dark .cm-number { color:#79c0ff; } .cm-dark .cm-meta, .cm-dark .cm-def { color:#ffa657; } .cm-dark .cm-keyword { color:#ff7b72; }
 .cm-dark .CodeMirror-selected { background:#264f78 !important; }
 .cm-error-line { background:rgba(248,81,73,.18); }
+.row-actions { display:flex; flex-wrap:wrap; align-items:center; gap:.4rem .8rem; margin-top:.4rem; }
+.test-result { font-size:13px; overflow-wrap:anywhere; flex:1 1 220px; }
+.test-result.ok { color:var(--ok); } .test-result.err { color:var(--err); }
 .cfgform [hidden] { display:none !important; }
 
 /* --- responsive --- */

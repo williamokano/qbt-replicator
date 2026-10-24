@@ -128,7 +128,7 @@ qbt-replicator serve [--no-daemon] [--listen :8080]   # daemon + web UI (Docker 
 qbt-replicator sync [--dry-run]                       # one pass and exit (cron friendly)
 qbt-replicator plan                                   # what the next pass would do
 qbt-replicator status                                 # health, connection status, speeds
-qbt-replicator instances list | check
+qbt-replicator instances list | check | test <name>
 qbt-replicator torrents list [--instance X] [--search S] [--category C] [--completed]
 qbt-replicator replicate <hash> [--from X] [--to Y,Z] [--force] [--dry-run]   # default targets: the rules for the source
 qbt-replicator unreplicate <hash> [--on Y] [--exclude] [--dry-run]   # refuses non-replicas; --exclude keeps rules from re-adding it
@@ -150,6 +150,7 @@ Inside Docker: `docker exec qbt-replicator /qbt-replicator plan`.
 | GET | `/`, `/torrents`, `/plan`, `/events`, `/config` | HTML UI (`?refresh=15` auto-refreshes) |
 | POST | `/config` | config editor save (form field `content`) |
 | GET / PUT | `/api/v1/config/raw` | read (secrets masked) / replace the YAML config |
+| POST | `/api/v1/instances/test` `{"name"}` or `{"url","username","password",…}` | test a saved or unsaved instance's connection and credentials |
 | POST | `/actions/sync`, `/actions/replicate`, `/actions/unreplicate` | UI form actions |
 | GET | `/api/v1/status[?fresh=1]`, `/api/v1/torrents`, `/api/v1/plan`, `/api/v1/events?limit=N`, `/api/v1/config` | JSON |
 | POST | `/api/v1/sync` `{"dry_run":bool}` | run a pass, returns the report |

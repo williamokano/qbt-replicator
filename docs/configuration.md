@@ -77,6 +77,9 @@ if anyone else can reach it.
 ## `instances`
 
 At least two, all seeing the downloads **at the same path** (or use `path_mappings`).
+Use the **Test** button next to each instance on the Config page (or
+`qbt-replicator instances test <name>`) to check the URL and credentials before saving. It
+explains what's wrong: wrong password, connection refused, host not found, TLS, banned IP…
 
 | Key | Default | Description |
 |---|---|---|

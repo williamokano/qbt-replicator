@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -111,6 +112,57 @@ func (s *Server) configFormSave(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.renderConfigForm(w, r, cfg, nil, err, http.StatusUnprocessableEntity)
+}
+
+// configTestInstance tests one instance row of the (unsaved) config form.
+func (s *Server) configTestInstance(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	rows := formRows(r.PostForm, "inst")
+	if len(rows) != 1 {
+		writeErr(w, http.StatusBadRequest, errors.New("send exactly one instance row"))
+		return
+	}
+	old := map[string]config.InstanceConfig{}
+	if base, err := s.svc.RawConfigStruct(); err == nil {
+		for _, in := range base.Instances {
+			old[in.Name] = in
+		}
+	}
+	var errs formErrors
+	in := instanceFromForm(r.PostForm, rows[0], old, &errs)
+	if len(errs) > 0 {
+		writeJSON(w, http.StatusOK, app.InstanceTest{Message: strings.Join(errs, "; ")})
+		return
+	}
+	writeJSON(w, http.StatusOK, s.svc.TestInstance(r.Context(), in))
+}
+
+type testInstanceBody struct {
+	Name string `json:"name"`
+	config.InstanceConfig
+}
+
+// apiTestInstance tests a saved instance ({"name": "qbt-1"}) or an unsaved
+// one given in full ({"url": ..., "username": ..., "password": ...}).
+func (s *Server) apiTestInstance(w http.ResponseWriter, r *http.Request) {
+	var b testInstanceBody
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&b); err != nil {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("invalid JSON body: %w", err))
+		return
+	}
+	in := b.InstanceConfig
+	if in.URL == "" {
+		saved, ok := s.svc.Config().Instance(b.Name)
+		if !ok {
+			writeErr(w, http.StatusNotFound, fmt.Errorf("unknown instance %q", b.Name))
+			return
+		}
+		in = saved
+	}
+	writeJSON(w, http.StatusOK, s.svc.TestInstance(r.Context(), in))
 }
 
 func saveMessage(res app.SaveResult) string {

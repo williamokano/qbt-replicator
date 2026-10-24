@@ -15,7 +15,7 @@ and applies immediately. Saving from the form rewrites the file without comments
 {{range .Overrides}}<code>{{.}}</code> {{end}}</p>{{end}}
 
 {{with .Form}}
-<form method="post" action="{{url "config/form"}}" class="cfgform" id="cfgform">
+<form method="post" action="{{url "config/form"}}" class="cfgform" id="cfgform" data-test-url="{{url "config/test-instance"}}">
 
 <fieldset>
   <legend>qBittorrent instances</legend>
@@ -117,7 +117,11 @@ and applies immediately. Saving from the form rewrites the file without comments
     </div>
     <label class="check"><input type="checkbox" name="inst-{{$i}}-insecure" {{if .InsecureSkipVerify}}checked{{end}}> Skip TLS verification (self-signed HTTPS)</label>
   </details>
-  <button type="button" class="link small" data-remove>remove instance</button>
+  <div class="row-actions">
+    <button type="button" class="secondary" data-test title="Check the URL and credentials as currently typed (nothing is saved)">Test</button>
+    <span class="test-result" role="status" aria-live="polite"></span>
+    <button type="button" class="link small" data-remove>remove instance</button>
+  </div>
 </div>
 {{end}}{{end}}
 

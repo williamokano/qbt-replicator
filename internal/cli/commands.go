@@ -181,6 +181,37 @@ func newInstancesCmd(g *globals) *cobra.Command {
 		},
 	})
 	cmd.AddCommand(&cobra.Command{
+		Use:   "test <name>",
+		Short: "Test one instance's URL and credentials, with an explanation if it fails",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := g.service()
+			if err != nil {
+				return err
+			}
+			in, ok := g.cfg.Instance(args[0])
+			if !ok {
+				return fmt.Errorf("unknown instance %q", args[0])
+			}
+			res := svc.TestInstance(ctxOf(cmd), in)
+			if g.output == "json" {
+				if err := printJSON(cmd.OutOrStdout(), res); err != nil {
+					return err
+				}
+			} else {
+				mark := "OK"
+				if !res.OK {
+					mark = "FAILED"
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "%s %s: %s\n", in.Name, mark, res.Message)
+			}
+			if !res.OK {
+				return fmt.Errorf("instance %s: test failed", in.Name)
+			}
+			return nil
+		},
+	})
+	cmd.AddCommand(&cobra.Command{
 		Use:   "check",
 		Short: "Check connectivity, credentials and versions of every instance",
 		RunE: func(cmd *cobra.Command, _ []string) error {
