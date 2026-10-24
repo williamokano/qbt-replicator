@@ -155,11 +155,15 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+      # Always use this run's GoReleaser config so older tags (which may predate it)
+      # can be (re)published; keep it outside the repo so the checkout stays clean.
+      - name: GoReleaser config from ${{ github.sha }}
+        run: git show "${GITHUB_SHA}:.goreleaser.yaml" > "${RUNNER_TEMP}/goreleaser.yaml"
       - uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
           version: "~> v2"
-          args: release --clean
+          args: release --clean --config ${{ runner.temp }}/goreleaser.yaml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GORELEASER_CURRENT_TAG: ${{ needs.plan.outputs.tag }}
