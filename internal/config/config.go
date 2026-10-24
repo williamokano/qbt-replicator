@@ -201,7 +201,7 @@ func Parse(raw []byte) (*Config, error) {
 
 	expanded, err := expandEnv(raw)
 	if err != nil {
-		return nil, fmt.Errorf("parsing yaml: %w", err)
+		return nil, err
 	}
 	if err := v.ReadConfig(bytes.NewReader(expanded)); err != nil {
 		return nil, fmt.Errorf("parsing yaml: %w", err)

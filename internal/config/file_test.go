@@ -81,3 +81,45 @@ func TestSaveFileKeepsBackup(t *testing.T) {
 		t.Errorf("backup %q", b)
 	}
 }
+
+// Uncommenting the starter's example blocks must yield a valid configuration.
+func TestStarterExamplesUncommentToValidConfig(t *testing.T) {
+	t.Setenv("QBT1_PASSWORD", "a")
+	t.Setenv("QBT2_PASSWORD", "b")
+	var out []string
+	uncomment := false
+	for _, l := range strings.Split(Starter, "\n") {
+		if strings.HasPrefix(l, "# instances:") {
+			uncomment = true
+		}
+		if uncomment && strings.HasPrefix(l, "# ") {
+			l = strings.TrimPrefix(l, "# ")
+		}
+		out = append(out, l)
+	}
+	cfg, err := Parse([]byte(strings.Join(out, "\n")))
+	if err != nil {
+		t.Fatalf("uncommented starter invalid: %v", err)
+	}
+	if len(cfg.Instances) != 2 || len(cfg.Rules) != 1 {
+		t.Errorf("got %d instances, %d rules", len(cfg.Instances), len(cfg.Rules))
+	}
+}
+
+func TestYAMLErrorPointsAtBadLine(t *testing.T) {
+	doc := "# comment\n\nlog:\n  level: info\n\ninstances: []\n - name: qbt-1\n   url: http://a\nrules: []\n"
+	_, err := Parse([]byte(doc))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "line 7") || !strings.Contains(msg, `remove the "[]"`) {
+		t.Errorf("unhelpful error: %s", msg)
+	}
+	if _, err := UnmaskSecrets([]byte(doc), nil); err == nil || !strings.Contains(err.Error(), "line 7") {
+		t.Errorf("editor path error not explained: %v", err)
+	}
+	if _, err := Parse([]byte("log:\n\tlevel: info\n")); err == nil || !strings.Contains(err.Error(), "tabs") {
+		t.Errorf("tab hint missing: %v", err)
+	}
+}

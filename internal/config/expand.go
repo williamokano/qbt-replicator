@@ -12,7 +12,7 @@ import (
 // '#', ':' or '$' intact instead of letting them break the YAML syntax.
 func expandEnv(raw []byte) ([]byte, error) {
 	var doc yaml.Node
-	if err := yaml.Unmarshal(raw, &doc); err != nil {
+	if err := unmarshalNode(raw, &doc); err != nil {
 		return nil, err
 	}
 	if doc.Kind == 0 { // empty document
