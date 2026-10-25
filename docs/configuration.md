@@ -58,8 +58,36 @@ Durations use Go syntax: `500ms`, `5s`, `2m`, `1h30m`. Sizes accept `1024`, `500
 | `server.auth.password` | empty | |
 | `server.public_url` | empty | How you reach the UI, e.g. `https://replicator.example.org`. Notifications link torrents to their history page with it. Empty = no links. |
 
+| `server.api.rate_limit.read` | `10` | Requests per second each [API key](#api-keys) may make with `GET` (token bucket). `0` = unlimited. |
+| `server.api.rate_limit.read_burst` | `30` | Requests a key may make at once before the per-second rate applies. |
+| `server.api.rate_limit.write` | `1` | Per second, for requests that change something (sync, replicate, unreplicate, config saves, tests). `0` = unlimited. |
+| `server.api.rate_limit.write_burst` | `5` | |
+
 The UI can change the configuration and remove torrents from instances. Set `server.auth`
 if anyone else can reach it.
+
+### API keys
+
+Scripts, dashboards, the remote CLI and MCP clients authenticate with API keys instead of
+the web login. Create them in **Config → API keys** or with
+`qbt-replicator apikey create <name> [--scope full]`; the key (`qbtr_…`) is shown once,
+only its hash is stored. Send it as `Authorization: Bearer qbtr_…` (or `X-Api-Key: qbtr_…`).
+
+| Scope | Can |
+|---|---|
+| `read` (default) | `GET` the JSON API and `/metrics`. |
+| `full` | Also sync, replicate, unreplicate, include, test instances/notifications and save the configuration, except the web login (`server.auth`). |
+
+- No key can create, list or revoke keys, or read secrets: passwords, qBittorrent API
+  keys and notification tokens are always masked.
+- Keys work for `/api/` and `/metrics` only; the web UI uses the login.
+- Once a key exists, the JSON API refuses requests without a key or the web login,
+  even when the login is disabled. Without keys the API behaves as before.
+- Each key is rate limited (`server.api.rate_limit`); over the limit the API answers
+  `429 Too Many Requests` with `Retry-After`. Invalid keys are limited to 10 attempts per
+  client address, then one every 6 seconds (all keys from that address get `429` meanwhile;
+  behind a reverse proxy, all clients share the proxy's address).
+- Revoking a key takes effect immediately.
 
 ## `daemon`
 

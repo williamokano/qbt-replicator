@@ -76,6 +76,7 @@ The configuration file is looked up in this order:
 		newEventsCmd(g),
 		newHistoryCmd(g),
 		newNotifyCmd(g),
+		newAPIKeyCmd(g),
 		newConfigCmd(g),
 		newHealthcheckCmd(g),
 		newVersionCmd(),

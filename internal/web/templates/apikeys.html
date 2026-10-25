@@ -1,0 +1,57 @@
+{{define "content"}}
+<h2>Configuration</h2>
+<nav class="tabs">
+  <a href="{{url "config"}}">Form</a>
+  <a href="{{url "config/yaml"}}">Advanced (YAML)</a>
+  <a href="{{url "config/api-keys"}}" class="active">API keys</a>
+  <a href="{{.DocsURL}}" target="_blank" rel="noopener">Documentation ↗</a>
+</nav>
+<p class="muted small">API keys let scripts, dashboards, the remote CLI and MCP clients use the
+<a href="{{.DocsURL}}#api-keys" target="_blank" rel="noopener">JSON API</a>: send
+<code>Authorization: Bearer qbtr_…</code>. <strong>Read-only</strong> keys can only read;
+<strong>full access</strong> keys can also sync, replicate, unreplicate and save the configuration
+(but not change the web login). No key can manage keys or read secrets.
+{{if .Keys}}Because keys exist, the API now rejects requests without a key{{if .LoginEnabled}} or the web login{{end}}.{{end}}</p>
+{{if not .LoginEnabled}}<p class="flash warn">The web UI has no login, so anyone who can open this page can create keys. Set a login in the <a href="{{url "config"}}">Form</a> (Web UI).</p>{{end}}
+{{if .Error}}<p class="flash err">{{.Error}}</p>{{end}}
+
+{{with .Created}}
+<div class="flash ok newkey">
+  <p><strong>API key "{{.Name}}" created ({{if eq .Scope "full"}}full access{{else}}read-only{{end}}).</strong> Copy it now: it is not shown again.</p>
+  <p><input class="secret" value="{{.Secret}}" readonly aria-label="New API key" onclick="this.select()"> 
+    <button type="button" class="secondary" onclick="var i=this.previousElementSibling;i.select();navigator.clipboard&&navigator.clipboard.writeText(i.value);this.textContent='Copied'">Copy</button></p>
+</div>
+{{end}}
+
+<form method="post" action="{{url "config/api-keys"}}" class="filters">
+  <input name="name" value="{{.Name}}" placeholder="Name, e.g. home-assistant" aria-label="Key name" required>
+  <select name="scope" aria-label="Access">
+    <option value="read">Read-only</option>
+    <option value="full">Full access</option>
+  </select>
+  <button type="submit">Create key</button>
+</form>
+{{if .CreateErr}}<p class="flash err">{{.CreateErr}}</p>{{end}}
+
+{{if .Keys}}
+<table class="stack events">
+  <tr class="head"><th>Name</th><th>Key</th><th>Access</th><th>Created</th><th>Last used</th><th></th></tr>
+  {{range .Keys}}
+  <tr>
+    <td class="msg"><strong>{{.Name}}</strong></td>
+    <td class="tag"><code>{{.Prefix}}…</code></td>
+    <td class="tag">{{if eq .Scope "full"}}full access{{else}}read-only{{end}}</td>
+    <td class="tag nowrap">created {{ts .Created}}</td>
+    <td class="tag nowrap">{{if isZero .LastUsed}}never used{{else}}used {{since .LastUsed}}{{end}}</td>
+    <td class="tag"><form method="post" action="{{url "config/api-keys"}}/{{.ID}}/revoke" class="inline" onsubmit="return confirm('Revoke API key {{.Name}}? Clients using it stop working immediately.')">
+      <button type="submit" class="link small">revoke</button></form></td>
+  </tr>
+  {{end}}
+</table>
+{{else}}<p class="muted">No API keys yet. Without keys the API is protected by the web login only{{if not .LoginEnabled}} (currently: open){{end}}.</p>{{end}}
+
+{{with .RateLimit}}<p class="muted small">Rate limit per key:
+{{if .Read}}{{.Read}} reads/s (bursts of {{.ReadBurst}}){{else}}unlimited reads{{end}},
+{{if .Write}}{{.Write}} changes/s (bursts of {{.WriteBurst}}){{else}}unlimited changes{{end}}.
+Set it in the <a href="{{url "config"}}">Form</a> (API). Invalid keys are limited to 10 tries per address, then one every 6 seconds.</p>{{end}}
+{{end}}

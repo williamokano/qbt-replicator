@@ -55,7 +55,22 @@ type ServerConfig struct {
 	Auth     AuthConfig `mapstructure:"auth" json:"auth" yaml:"auth"`
 	// PublicURL is how users reach the web UI (e.g. https://replicator.example.org),
 	// used for links in notifications. Empty: no links.
-	PublicURL string `mapstructure:"public_url" json:"public_url" yaml:"public_url"`
+	PublicURL string    `mapstructure:"public_url" json:"public_url" yaml:"public_url"`
+	API       APIConfig `mapstructure:"api" json:"api" yaml:"api"`
+}
+
+// APIConfig configures access with API keys.
+type APIConfig struct {
+	RateLimit RateLimitConfig `mapstructure:"rate_limit" json:"rate_limit" yaml:"rate_limit"`
+}
+
+// RateLimitConfig is a token bucket per API key: requests per second and burst
+// size, separately for reads (GET) and changes (POST/PUT). A rate of 0 disables the limit.
+type RateLimitConfig struct {
+	Read       float64 `mapstructure:"read" json:"read" yaml:"read"`
+	ReadBurst  int     `mapstructure:"read_burst" json:"read_burst" yaml:"read_burst"`
+	Write      float64 `mapstructure:"write" json:"write" yaml:"write"`
+	WriteBurst int     `mapstructure:"write_burst" json:"write_burst" yaml:"write_burst"`
 }
 
 // AuthConfig enables HTTP basic auth on the web UI/API when both fields are set.
@@ -273,6 +288,10 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("log.format", "text")
 	v.SetDefault("server.listen", ":8080")
 	v.SetDefault("server.base_path", "/")
+	v.SetDefault("server.api.rate_limit.read", 10)
+	v.SetDefault("server.api.rate_limit.read_burst", 30)
+	v.SetDefault("server.api.rate_limit.write", 1)
+	v.SetDefault("server.api.rate_limit.write_burst", 5)
 	v.SetDefault("daemon.enabled", true)
 	v.SetDefault("daemon.interval", "5s")
 	v.SetDefault("daemon.concurrency", 2)
@@ -523,6 +542,9 @@ func (c *Config) Validate() error {
 		if p, err := url.Parse(u); err != nil || (p.Scheme != "http" && p.Scheme != "https") || p.Host == "" {
 			errs = append(errs, fmt.Errorf("server.public_url %q must be an absolute http(s) URL", u))
 		}
+	}
+	if rl := c.Server.API.RateLimit; rl.Read < 0 || rl.Write < 0 || (rl.Read > 0 && rl.ReadBurst < 1) || (rl.Write > 0 && rl.WriteBurst < 1) {
+		errs = append(errs, errors.New("server.api.rate_limit: rates must be >= 0 (0 = unlimited) and bursts >= 1"))
 	}
 	errs = append(errs, c.ValidateNotifications()...)
 	if !strings.HasPrefix(c.Server.BasePath, "/") {

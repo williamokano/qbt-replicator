@@ -157,6 +157,13 @@ func configFromForm(r *http.Request, base *config.Config) (*config.Config, error
 		cfg.Database.Retention = v
 	}
 	cfg.Server.PublicURL = strings.TrimSpace(f.Get("public_url"))
+	if f.Has("rl_read") {
+		rl := &cfg.Server.API.RateLimit
+		rl.Read = errs.float("Reads per second", strings.TrimSpace(f.Get("rl_read")))
+		rl.ReadBurst = errs.integer("Read burst", strings.TrimSpace(f.Get("rl_read_burst")), rl.ReadBurst)
+		rl.Write = errs.float("Changes per second", strings.TrimSpace(f.Get("rl_write")))
+		rl.WriteBurst = errs.integer("Change burst", strings.TrimSpace(f.Get("rl_write_burst")), rl.WriteBurst)
+	}
 	cfg.Server.Auth.Username = strings.TrimSpace(f.Get("auth_username"))
 	switch pw := f.Get("auth_password"); {
 	case checked(f, "auth_clear"):

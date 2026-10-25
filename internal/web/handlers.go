@@ -335,11 +335,18 @@ func (s *Server) apiConfigSave(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	res, err := s.svc.SaveConfig(string(body))
+	save := s.svc.SaveConfig
+	if apiKeyFrom(r.Context()) != nil {
+		save = s.svc.SaveConfigKeepLogin
+	}
+	res, err := save(string(body))
 	if err != nil {
 		status := http.StatusUnprocessableEntity
-		if res.Saved {
+		switch {
+		case res.Saved:
 			status = http.StatusInternalServerError
+		case errors.Is(err, app.ErrLoginChange):
+			status = http.StatusForbidden
 		}
 		writeErr(w, status, err)
 		return

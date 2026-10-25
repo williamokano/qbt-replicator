@@ -100,9 +100,19 @@ type SaveResult struct {
 	RestartRequired []string `json:"restart_required,omitempty"`
 }
 
+// ErrLoginChange is returned when an API key tries to change the web UI login.
+var ErrLoginChange = errors.New("the web UI login (server.auth) cannot be changed with an API key")
+
 // SaveConfig validates edited YAML (masked passwords are restored from the
 // current file), writes it atomically (keeping a .bak) and applies it.
-func (s *Service) SaveConfig(edited string) (SaveResult, error) {
+func (s *Service) SaveConfig(edited string) (SaveResult, error) { return s.saveConfig(edited, false) }
+
+// SaveConfigKeepLogin is SaveConfig for API keys: changing server.auth is refused.
+func (s *Service) SaveConfigKeepLogin(edited string) (SaveResult, error) {
+	return s.saveConfig(edited, true)
+}
+
+func (s *Service) saveConfig(edited string, keepLogin bool) (SaveResult, error) {
 	s.saveMu.Lock()
 	defer s.saveMu.Unlock()
 	cur := s.Config()
@@ -117,6 +127,9 @@ func (s *Service) SaveConfig(edited string) (SaveResult, error) {
 	cfg, err := config.Parse(raw)
 	if err != nil {
 		return SaveResult{}, err
+	}
+	if keepLogin && cfg.Server.Auth != cur.Server.Auth {
+		return SaveResult{}, ErrLoginChange
 	}
 	cfg.Path = cur.Path
 	if err := config.SaveFile(cur.Path, raw); err != nil {

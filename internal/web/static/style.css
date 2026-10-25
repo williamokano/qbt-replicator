@@ -149,7 +149,7 @@ pre { white-space:pre-wrap; overflow-wrap:anywhere; }
   .toolbar.sticky button { flex:1; }
   form.filters input[type=search] { flex-basis:100%; }
   form.filters select { flex:1 1 40%; }
-  form.filters button[type=submit] { display:none; } /* filters apply automatically */
+  #torrent-filters button[type=submit] { display:none; } /* torrent filters apply automatically */
   table.stack td.actions .btns > form { flex:1; }
   table.stack td.actions .btns > form button { width:100%; }
   details.menu > summary { min-height:40px; }
@@ -174,3 +174,4 @@ details.menu[open] > summary { background:var(--accent); color:#fff; }
 .menu-items .item:hover, .menu-items .item:focus-visible { background:var(--bg); outline:none; }
 .menu-items .item small { display:block; margin-top:.1rem; color:var(--muted); font-size:12px; font-weight:normal; }
 .menu-items button.item.danger { color:var(--err); }
+.newkey input.secret { width:100%; max-width:34rem; font:13px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }

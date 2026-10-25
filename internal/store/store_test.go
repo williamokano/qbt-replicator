@@ -192,3 +192,36 @@ func TestPrune(t *testing.T) {
 		t.Fatalf("pending notification pruned")
 	}
 }
+
+func TestAPIKeys(t *testing.T) {
+	ctx := context.Background()
+	s := openMem(t)
+	now := time.Now().Truncate(time.Millisecond)
+	id, err := s.AddAPIKey(ctx, APIKey{Name: "ha", Prefix: "qbtr_ab12", Scope: "read", Created: now}, "h1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddAPIKey(ctx, APIKey{Name: "dup", Scope: "full", Created: now}, "h1"); err == nil {
+		t.Fatal("duplicate hash accepted")
+	}
+	k, err := s.APIKeyByHash(ctx, "h1")
+	if err != nil || k.ID != id || k.Name != "ha" || k.Scope != "read" || !k.Created.Equal(now) || !k.LastUsed.IsZero() {
+		t.Fatalf("by hash = %+v, %v", k, err)
+	}
+	if _, err := s.APIKeyByHash(ctx, "nope"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unknown hash err = %v", err)
+	}
+	if err := s.TouchAPIKey(ctx, id, now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	keys, _ := s.APIKeys(ctx)
+	if n, _ := s.CountAPIKeys(ctx); n != 1 || len(keys) != 1 || !keys[0].LastUsed.Equal(now.Add(time.Minute)) {
+		t.Fatalf("keys = %+v", keys)
+	}
+	if err := s.DeleteAPIKey(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteAPIKey(ctx, id); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("second delete err = %v", err)
+	}
+}
