@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/williamokano/qbt-replicator/internal/config"
 	"github.com/williamokano/qbt-replicator/internal/events"
 	"github.com/williamokano/qbt-replicator/internal/store"
 )
@@ -19,10 +20,26 @@ func historyFilter(r *http.Request) store.ActionFilter {
 	if limit <= 0 {
 		limit = historyPageSize
 	}
-	return store.ActionFilter{
+	f := store.ActionFilter{
 		Hash: q.Get("hash"), Search: q.Get("search"), Instance: q.Get("instance"),
 		Type: q.Get("type"), Result: q.Get("result"), BeforeID: before, Limit: limit,
 	}
+	f.Since = parseSince(q.Get("since"), time.Now())
+	return f
+}
+
+// parseSince accepts an RFC 3339 time or a duration back from now ("24h", "7d").
+func parseSince(s string, now time.Time) time.Time {
+	if s == "" {
+		return time.Time{}
+	}
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t
+	}
+	if d, err := config.ParseDays(s); err == nil && d > 0 {
+		return now.Add(-d)
+	}
+	return time.Time{}
 }
 
 func eventFilter(r *http.Request) store.EventFilter {

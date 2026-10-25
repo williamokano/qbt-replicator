@@ -21,6 +21,8 @@ type globals struct {
 	configPath string
 	logLevel   string
 	output     string
+	host       string // remote mode: a running qbt-replicator
+	apiKey     string
 
 	cfg    *config.Config
 	logger *slog.Logger
@@ -47,7 +49,11 @@ storage. When a torrent completes on a source instance it is exported and added
 to the target instances at the same path, so it seeds from several IPs/tunnels.
 
 The configuration file is looked up in this order:
-  --config flag, $QBTR_CONFIG, ` + config.DefaultPath + `, ./config.yaml`,
+  --config flag, $QBTR_CONFIG, ` + config.DefaultPath + `, ./config.yaml
+
+With --host (or $QBTR_HOST) and an API key (--api-key or $QBTR_API_KEY) the
+commands talk to a running qbt-replicator over its API instead: no config file
+or database is needed on this machine.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Version:       version.Version,
@@ -62,6 +68,8 @@ The configuration file is looked up in this order:
 	pf.StringVarP(&g.configPath, "config", "c", "", "config file (default $QBTR_CONFIG or "+config.DefaultPath+")")
 	pf.StringVar(&g.logLevel, "log-level", "", "override log.level (debug|info|warn|error)")
 	pf.StringVarP(&g.output, "output", "o", "table", "output format: table|json")
+	pf.StringVar(&g.host, "host", "", "use a running qbt-replicator's API instead of the local config and database (or $QBTR_HOST), e.g. https://replicator.lan")
+	pf.StringVar(&g.apiKey, "api-key", "", "API key for --host (or $QBTR_API_KEY)")
 
 	root.AddCommand(
 		newServeCmd(g),
@@ -79,7 +87,7 @@ The configuration file is looked up in this order:
 		newAPIKeyCmd(g),
 		newConfigCmd(g),
 		newHealthcheckCmd(g),
-		newVersionCmd(),
+		newVersionCmd(g),
 	)
 	return root
 }

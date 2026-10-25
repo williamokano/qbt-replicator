@@ -57,6 +57,8 @@ internal/replicator/       snapshot, pure planner, executor, engine/daemon, metr
 internal/store/            SQLite persistence: events, run history, planner memory, outbox
 internal/notify/           notifications: Telegram/webhook senders, outbox dispatcher
 internal/app/              Service façade used by BOTH cli and web (+ config reload)
+internal/client/           typed JSON API client (CLI remote mode --host)
+internal/backend/          operations shared by CLI and MCP: local service or remote client
 internal/cli/              cobra commands (thin adapters)
 internal/web/              handlers, templates, static assets (embedded)
 ```
@@ -85,7 +87,9 @@ Before pushing: `gofmt -l .` must be empty, `go mod tidy` must not change files,
 - API keys never manage API keys, never change `server.auth` and never see secrets; key
   management stays in the web UI (outside `/api/`) and the local CLI.
 - New user-facing operations go into `internal/app.Service` first, then get both a CLI
-  command and an HTTP handler; keep those adapters thin.
+  command and an HTTP handler; keep those adapters thin. CLI commands go through the
+  `backend.Backend` interface (`internal/backend`) so they also work remotely: add the
+  method to `internal/client` too.
 - The planner (`replicator.Compute`) stays a pure function; add table tests for new cases.
 - Test against `internal/qbt/fake` (both dialects) instead of real servers.
 - Schema changes are new entries appended to `store.migrations`; never edit a released
