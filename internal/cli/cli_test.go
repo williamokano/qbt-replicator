@@ -138,3 +138,27 @@ func TestNotifyCommands(t *testing.T) {
 		t.Fatalf("notify list: %v %s", err, out)
 	}
 }
+
+func TestAPIKeyCommands(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("log: {level: info}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, "-c", path, "apikey", "create", "ha", "--scope", "full")
+	if err != nil || !strings.HasPrefix(out, "qbtr_") || !strings.Contains(out, "not shown again") {
+		t.Fatalf("create: %v %s", err, out)
+	}
+	if _, err := run(t, "-c", path, "apikey", "create", "x", "--scope", "admin"); err == nil {
+		t.Fatal("invalid scope accepted")
+	}
+	out, err = run(t, "-c", path, "apikey", "list")
+	if err != nil || !strings.Contains(out, "ha") || !strings.Contains(out, "full") || strings.Count(out, "qbtr_") != 1 {
+		t.Fatalf("list: %v %s", err, out)
+	}
+	if out, err := run(t, "-c", path, "apikey", "revoke", "ha"); err != nil || !strings.Contains(out, "revoked") {
+		t.Fatalf("revoke: %v %s", err, out)
+	}
+	if _, err := run(t, "-c", path, "apikey", "revoke", "ha"); err == nil {
+		t.Fatal("revoking twice should fail")
+	}
+}

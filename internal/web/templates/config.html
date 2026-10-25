@@ -3,6 +3,7 @@
 <nav class="tabs">
   <a href="{{url "config"}}" class="active">Form</a>
   <a href="{{url "config/yaml"}}">Advanced (YAML)</a>
+  <a href="{{url "config/api-keys"}}">API keys</a>
   <a href="{{.DocsURL}}" target="_blank" rel="noopener">Documentation ↗</a>
 </nav>
 <p class="muted small">File <code>{{.Path}}</code>. Saving validates, keeps the previous file as <code>config.yaml.bak</code>
@@ -88,6 +89,19 @@ and applies immediately. Saving from the form rewrites the file without comments
     <label>Password <input name="auth_password" type="password" autocomplete="new-password" placeholder="{{if .Server.Auth.Password}}unchanged{{end}}"><small>Leave empty to keep the current one.</small></label>
   </div>
   {{if .Server.Auth.Password}}<label class="check"><input type="checkbox" name="auth_clear"> Remove the password (disable login)</label>{{end}}
+</fieldset>
+
+<fieldset>
+  <legend>API rate limit</legend>
+  <p class="muted small">Per <a href="{{url "config/api-keys"}}">API key</a>: requests per second and burst size. 0 = unlimited.</p>
+  <div class="grid">
+    {{with .Server.API.RateLimit}}
+    <label>Reads per second <input name="rl_read" type="number" min="0" step="any" value="{{.Read}}"></label>
+    <label>Read burst <input name="rl_read_burst" type="number" min="1" value="{{.ReadBurst}}"></label>
+    <label>Changes per second <input name="rl_write" type="number" min="0" step="any" value="{{.Write}}"><small>Sync, replicate, config saves…</small></label>
+    <label>Change burst <input name="rl_write_burst" type="number" min="1" value="{{.WriteBurst}}"></label>
+    {{end}}
+  </div>
 </fieldset>
 
 <div class="toolbar sticky">

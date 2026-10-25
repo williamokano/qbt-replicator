@@ -141,6 +141,16 @@ var migrations = []string{
 		sent_at      INTEGER NOT NULL DEFAULT 0
 	);
 	CREATE INDEX outbox_due ON outbox(notifier, status, next_attempt);`,
+	// 2: API keys
+	`CREATE TABLE api_keys (
+		id        INTEGER PRIMARY KEY AUTOINCREMENT,
+		name      TEXT NOT NULL,
+		prefix    TEXT NOT NULL,
+		hash      TEXT NOT NULL UNIQUE,
+		scope     TEXT NOT NULL,
+		created   INTEGER NOT NULL,
+		last_used INTEGER NOT NULL DEFAULT 0
+	);`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {

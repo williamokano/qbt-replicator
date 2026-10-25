@@ -312,3 +312,21 @@ func TestMaskNotificationSecrets(t *testing.T) {
 		t.Fatalf("not restored: %s %v", back, err)
 	}
 }
+
+func TestRateLimitConfig(t *testing.T) {
+	cfg, err := Parse(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rl := cfg.Server.API.RateLimit; rl.Read != 10 || rl.ReadBurst != 30 || rl.Write != 1 || rl.WriteBurst != 5 {
+		t.Errorf("defaults = %+v", rl)
+	}
+	if _, err := Parse([]byte("server: {api: {rate_limit: {read: 0, write: 0}}}")); err != nil {
+		t.Errorf("0 disables the limit: %v", err)
+	}
+	for _, bad := range []string{"server: {api: {rate_limit: {read: -1}}}", "server: {api: {rate_limit: {write: 2, write_burst: 0}}}"} {
+		if _, err := Parse([]byte(bad)); err == nil {
+			t.Errorf("%s: expected error", bad)
+		}
+	}
+}

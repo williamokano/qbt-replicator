@@ -45,7 +45,8 @@ JSON API**; every command and every UI button goes through the same service laye
 - **Notifications** to **Telegram** (your own bot) or any **webhook** (JSON): replicas
   added/removed, failures, instances going down/up, and an optional daily summary. Bursts
   are batched into one message, repeated failures are sent once, and delivery is retried.
-- JSON API, `/healthz`, `/readyz`, Prometheus `/metrics`, optional basic auth.
+- JSON API with read-only / full-access **API keys** and per-key rate limits, `/healthz`,
+  `/readyz`, Prometheus `/metrics`, optional basic auth.
 - Dry-run mode everywhere.
 
 ## Quick start (Docker)
@@ -139,6 +140,7 @@ qbt-replicator unreplicate <hash> [--on Y] [--exclude] [--dry-run]   # refuses n
 qbt-replicator include <hash>                         # undo --exclude: rules replicate it again
 qbt-replicator history [search] [--hash H] [--instance X] [--type add] [--result error] [--since 24h]
 qbt-replicator events [--limit 50] [--level warn] [--hash H]   # activity log
+qbt-replicator apikey create <name> [--scope full] | list | revoke <id|name>
 qbt-replicator notify list | test <name>              # notification destinations, send a test message
 qbt-replicator config init | validate | show          # init writes a starter file; show redacts secrets
 qbt-replicator healthcheck [--url ...]                # used by Docker HEALTHCHECK
@@ -167,7 +169,9 @@ Inside Docker: `docker exec qbt-replicator /qbt-replicator plan`.
 | POST | `/api/v1/include` `{"hash","dry_run"}` | remove the exclude tag again |
 | GET | `/healthz`, `/readyz`, `/metrics` | ops |
 
-Cross-origin POSTs are rejected (CSRF protection).
+Cross-origin POSTs are rejected (CSRF protection). Scripts authenticate with an
+[API key](docs/configuration.md#api-keys) (`Authorization: Bearer qbtr_…`), read-only or
+full access, rate limited per key.
 
 ## How a replica is added
 

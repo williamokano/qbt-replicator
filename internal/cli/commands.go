@@ -446,6 +446,81 @@ func newNotifyCmd(g *globals) *cobra.Command {
 	return cmd
 }
 
+func newAPIKeyCmd(g *globals) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "apikey",
+		Short: "Create, list or revoke API keys (local only)",
+		Long: `API keys give scripts, the remote CLI and MCP clients access to the JSON API.
+Keys are managed here or in the web UI (Config > API keys), never through the API.`,
+	}
+	var scope string
+	create := &cobra.Command{
+		Use:   "create <name>",
+		Short: "Create an API key and print it (shown only once)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := g.service()
+			if err != nil {
+				return err
+			}
+			k, err := svc.CreateAPIKey(ctxOf(cmd), args[0], scope)
+			if err != nil {
+				return err
+			}
+			if g.output == "json" {
+				return printJSON(cmd.OutOrStdout(), k)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "%s\n\nAPI key %q (%s) created. Copy it now: it is not shown again.\n", k.Secret, k.Name, k.Scope)
+			return nil
+		},
+	}
+	create.Flags().StringVar(&scope, "scope", app.ScopeRead, "read (GET only) or full (also sync, replicate, config)")
+	cmd.AddCommand(create, &cobra.Command{
+		Use:   "list",
+		Short: "List API keys",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			svc, err := g.service()
+			if err != nil {
+				return err
+			}
+			keys, err := svc.APIKeys(ctxOf(cmd))
+			if err != nil {
+				return err
+			}
+			if g.output == "json" {
+				return printJSON(cmd.OutOrStdout(), keys)
+			}
+			tw := newTable(cmd.OutOrStdout())
+			fmt.Fprintln(tw, "ID\tNAME\tKEY\tSCOPE\tCREATED\tLAST USED")
+			for _, k := range keys {
+				used := "never"
+				if !k.LastUsed.IsZero() {
+					used = k.LastUsed.Format(time.DateTime)
+				}
+				fmt.Fprintf(tw, "%d\t%s\t%s…\t%s\t%s\t%s\n", k.ID, k.Name, k.Prefix, k.Scope, k.Created.Format(time.DateTime), used)
+			}
+			return tw.Flush()
+		},
+	}, &cobra.Command{
+		Use:   "revoke <id|name>",
+		Short: "Revoke an API key",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := g.service()
+			if err != nil {
+				return err
+			}
+			k, err := svc.RevokeAPIKey(ctxOf(cmd), args[0])
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "API key %q revoked\n", k.Name)
+			return nil
+		},
+	})
+	return cmd
+}
+
 func newConfigCmd(g *globals) *cobra.Command {
 	cmd := &cobra.Command{Use: "config", Short: "Validate or display configuration"}
 	cmd.AddCommand(&cobra.Command{

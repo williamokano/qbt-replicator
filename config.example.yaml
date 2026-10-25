@@ -18,6 +18,12 @@ server:
   auth:                # basic auth for the UI/API; leave empty to disable
     username: ""
     password: ""
+  api:
+    rate_limit:        # per API key (Config > API keys); 0 = unlimited
+      read: 10         # GET requests per second
+      read_burst: 30
+      write: 1         # sync/replicate/config changes per second
+      write_burst: 5
 
 daemon:
   enabled: true        # false (or `serve --no-daemon`) = UI/API only

@@ -82,6 +82,8 @@ Before pushing: `gofmt -l .` must be empty, `go mod tidy` must not change files,
 - Torrents tagged with `daemon.replica_tag` are owned by the replicator and are never
   treated as sources (prevents replication loops).
 - No orphan removal while any instance is unreachable.
+- API keys never manage API keys, never change `server.auth` and never see secrets; key
+  management stays in the web UI (outside `/api/`) and the local CLI.
 - New user-facing operations go into `internal/app.Service` first, then get both a CLI
   command and an HTTP handler; keep those adapters thin.
 - The planner (`replicator.Compute`) stays a pure function; add table tests for new cases.
