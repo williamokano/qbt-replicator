@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/williamokano/qbt-replicator/internal/app"
 	"github.com/williamokano/qbt-replicator/internal/config"
@@ -256,5 +257,20 @@ func TestTorrentActionsMenu(t *testing.T) {
 	}
 	if body := do(h, http.MethodGet, "/torrents?fresh=1", nil, nil).Body.String(); !strings.Contains(body, "Unreplicate all") {
 		t.Fatal("Unreplicate all missing once a replica exists")
+	}
+}
+
+func TestParseSince(t *testing.T) {
+	now := time.Date(2026, 10, 25, 12, 0, 0, 0, time.UTC)
+	for in, want := range map[string]time.Time{
+		"":                     {},
+		"garbage":              {},
+		"24h":                  now.Add(-24 * time.Hour),
+		"7d":                   now.Add(-7 * 24 * time.Hour),
+		"2026-10-01T00:00:00Z": time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC),
+	} {
+		if got := parseSince(in, now); !got.Equal(want) {
+			t.Errorf("parseSince(%q) = %s, want %s", in, got, want)
+		}
 	}
 }

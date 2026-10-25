@@ -31,6 +31,9 @@ func newServeCmd(g *globals) *cobra.Command {
 		Use:   "serve",
 		Short: "Run the replication daemon and the web UI/API",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := g.localOnly("serve"); err != nil {
+				return err
+			}
 			path := config.ResolvePath(g.configPath)
 			created := false
 			if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
@@ -109,11 +112,14 @@ func newSyncCmd(g *globals) *cobra.Command {
 		Use:   "sync",
 		Short: "Run a single reconcile pass and exit (cron friendly)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			svc, err := g.service()
+			b, err := g.backend()
 			if err != nil {
 				return err
 			}
-			rep := svc.SyncOnce(ctxOf(cmd), dry)
+			rep, err := b.Sync(ctxOf(cmd), dry)
+			if err != nil {
+				return err
+			}
 			if err := printReport(cmd.OutOrStdout(), g.output, rep); err != nil {
 				return err
 			}
@@ -132,11 +138,15 @@ func newPlanCmd(g *globals) *cobra.Command {
 		Use:   "plan",
 		Short: "Show the actions the next pass would take",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			svc, err := g.service()
+			b, err := g.backend()
 			if err != nil {
 				return err
 			}
-			return printPlan(cmd.OutOrStdout(), g.output, svc.Plan(ctxOf(cmd)))
+			p, err := b.Plan(ctxOf(cmd))
+			if err != nil {
+				return err
+			}
+			return printPlan(cmd.OutOrStdout(), g.output, p)
 		},
 	}
 }
@@ -146,11 +156,14 @@ func newStatusCmd(g *globals) *cobra.Command {
 		Use:   "status",
 		Short: "Show instance health, connection status and speeds",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			svc, err := g.service()
+			b, err := g.backend()
 			if err != nil {
 				return err
 			}
-			st := svc.Status(ctxOf(cmd))
+			st, err := b.Status(ctxOf(cmd), true)
+			if err != nil {
+				return err
+			}
 			return printStatus(cmd.OutOrStdout(), g.output, st)
 		},
 	}
@@ -162,10 +175,14 @@ func newInstancesCmd(g *globals) *cobra.Command {
 		Use:   "list",
 		Short: "List configured instances",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if err := g.load(); err != nil {
+			b, err := g.backend()
+			if err != nil {
 				return err
 			}
-			red := g.cfg.Redacted()
+			red, err := b.Config(ctxOf(cmd))
+			if err != nil {
+				return err
+			}
 			if g.output == "json" {
 				return printJSON(cmd.OutOrStdout(), red.Instances)
 			}
@@ -186,15 +203,15 @@ func newInstancesCmd(g *globals) *cobra.Command {
 		Short: "Test one instance's URL and credentials, with an explanation if it fails",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := g.service()
+			b, err := g.backend()
 			if err != nil {
 				return err
 			}
-			in, ok := g.cfg.Instance(args[0])
-			if !ok {
-				return fmt.Errorf("unknown instance %q", args[0])
+			name := args[0]
+			res, err := b.TestInstance(ctxOf(cmd), name)
+			if err != nil {
+				return err
 			}
-			res := svc.TestInstance(ctxOf(cmd), in)
 			if g.output == "json" {
 				if err := printJSON(cmd.OutOrStdout(), res); err != nil {
 					return err
@@ -204,10 +221,10 @@ func newInstancesCmd(g *globals) *cobra.Command {
 				if !res.OK {
 					mark = "FAILED"
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "%s %s: %s\n", in.Name, mark, res.Message)
+				fmt.Fprintf(cmd.OutOrStdout(), "%s %s: %s\n", name, mark, res.Message)
 			}
 			if !res.OK {
-				return fmt.Errorf("instance %s: test failed", in.Name)
+				return fmt.Errorf("instance %s: test failed", name)
 			}
 			return nil
 		},
@@ -216,11 +233,14 @@ func newInstancesCmd(g *globals) *cobra.Command {
 		Use:   "check",
 		Short: "Check connectivity, credentials and versions of every instance",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			svc, err := g.service()
+			b, err := g.backend()
 			if err != nil {
 				return err
 			}
-			st := svc.Status(ctxOf(cmd))
+			st, err := b.Status(ctxOf(cmd), true)
+			if err != nil {
+				return err
+			}
 			if err := printStatus(cmd.OutOrStdout(), g.output, st); err != nil {
 				return err
 			}
@@ -246,13 +266,20 @@ func newTorrentsCmd(g *globals) *cobra.Command {
 		Use:   "list",
 		Short: "List torrents as a torrent x instance matrix",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			svc, err := g.service()
+			b, err := g.backend()
 			if err != nil {
 				return err
 			}
 			f.Fresh = true
-			rows := svc.Torrents(ctxOf(cmd), f)
-			return printTorrents(cmd.OutOrStdout(), g.output, g.cfg.InstanceNames(), rows)
+			rows, err := b.Torrents(ctxOf(cmd), f)
+			if err != nil {
+				return err
+			}
+			cfg, err := b.Config(ctxOf(cmd))
+			if err != nil {
+				return err
+			}
+			return printTorrents(cmd.OutOrStdout(), g.output, cfg.InstanceNames(), rows)
 		},
 	}
 	list.Flags().StringVar(&f.Instance, "instance", "", "only torrents present on this instance")
@@ -270,12 +297,12 @@ func newReplicateCmd(g *globals) *cobra.Command {
 		Short: "Manually replicate a completed torrent to other instances",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := g.service()
+			b, err := g.backend()
 			if err != nil {
 				return err
 			}
 			req.Hash = strings.ToLower(args[0])
-			res, err := svc.Replicate(ctxOf(cmd), req)
+			res, err := b.Replicate(ctxOf(cmd), req)
 			if err != nil {
 				return err
 			}
@@ -297,11 +324,11 @@ func newUnreplicateCmd(g *globals) *cobra.Command {
 		Short: "Remove replicas of a torrent (files are always kept)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := g.service()
+			b, err := g.backend()
 			if err != nil {
 				return err
 			}
-			res, err := svc.Unreplicate(ctxOf(cmd), replicator.UnreplicateRequest{
+			res, err := b.Unreplicate(ctxOf(cmd), replicator.UnreplicateRequest{
 				Hash: strings.ToLower(args[0]), On: on, Exclude: exclude, DryRun: dry,
 			})
 			if err != nil {
@@ -323,11 +350,11 @@ func newIncludeCmd(g *globals) *cobra.Command {
 		Short: "Let rules replicate a torrent excluded with 'unreplicate --exclude' again",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := g.service()
+			b, err := g.backend()
 			if err != nil {
 				return err
 			}
-			res, err := svc.Include(ctxOf(cmd), strings.ToLower(args[0]), dry)
+			res, err := b.Include(ctxOf(cmd), strings.ToLower(args[0]), dry)
 			if err != nil {
 				return err
 			}
@@ -343,13 +370,13 @@ func newEventsCmd(g *globals) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "events",
 		Short: "Show the activity log",
-		Long:  "Reads the activity log from the database (shared with a running daemon).",
+		Long:  "Reads the activity log from the database (shared with a running daemon), or from --host.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			svc, err := g.service()
+			b, err := g.backend()
 			if err != nil {
 				return err
 			}
-			evs, err := svc.EventHistory(ctxOf(cmd), f)
+			evs, err := b.Events(ctxOf(cmd), f)
 			if err != nil {
 				return err
 			}
@@ -373,7 +400,7 @@ func newHistoryCmd(g *globals) *cobra.Command {
 argument matches the torrent name (substring) or hash prefix.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := g.service()
+			b, err := g.backend()
 			if err != nil {
 				return err
 			}
@@ -383,7 +410,7 @@ argument matches the torrent name (substring) or hash prefix.`,
 			if since > 0 {
 				f.Since = time.Now().Add(-since)
 			}
-			acts, err := svc.History(ctxOf(cmd), f)
+			acts, err := b.History(ctxOf(cmd), f)
 			if err != nil {
 				return err
 			}
@@ -405,11 +432,14 @@ func newNotifyCmd(g *globals) *cobra.Command {
 		Use:   "list",
 		Short: "List notifiers with their delivery counts",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			svc, err := g.service()
+			b, err := g.backend()
 			if err != nil {
 				return err
 			}
-			st := svc.Notifications(ctxOf(cmd))
+			st, err := b.Notifications(ctxOf(cmd))
+			if err != nil {
+				return err
+			}
 			if g.output == "json" {
 				return printJSON(cmd.OutOrStdout(), st)
 			}
@@ -427,20 +457,15 @@ func newNotifyCmd(g *globals) *cobra.Command {
 		Short: "Send a test message with a configured notifier",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := g.service()
+			b, err := g.backend()
 			if err != nil {
 				return err
 			}
-			for _, n := range svc.Config().Notifications {
-				if n.Name == args[0] {
-					if err := svc.TestNotification(ctxOf(cmd), n); err != nil {
-						return err
-					}
-					fmt.Fprintf(cmd.OutOrStdout(), "test message sent with %s\n", n.Name)
-					return nil
-				}
+			if err := b.TestNotification(ctxOf(cmd), args[0]); err != nil {
+				return err
 			}
-			return fmt.Errorf("unknown notification %q", args[0])
+			fmt.Fprintf(cmd.OutOrStdout(), "test message sent with %s\n", args[0])
+			return nil
 		},
 	})
 	return cmd
@@ -459,6 +484,9 @@ Keys are managed here or in the web UI (Config > API keys), never through the AP
 		Short: "Create an API key and print it (shown only once)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := g.localOnly("apikey"); err != nil {
+				return err
+			}
 			svc, err := g.service()
 			if err != nil {
 				return err
@@ -479,6 +507,9 @@ Keys are managed here or in the web UI (Config > API keys), never through the AP
 		Use:   "list",
 		Short: "List API keys",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := g.localOnly("apikey"); err != nil {
+				return err
+			}
 			svc, err := g.service()
 			if err != nil {
 				return err
@@ -506,6 +537,9 @@ Keys are managed here or in the web UI (Config > API keys), never through the AP
 		Short: "Revoke an API key",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := g.localOnly("apikey"); err != nil {
+				return err
+			}
 			svc, err := g.service()
 			if err != nil {
 				return err
@@ -527,6 +561,9 @@ func newConfigCmd(g *globals) *cobra.Command {
 		Use:   "validate",
 		Short: "Validate the configuration file",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := g.localOnly("config validate"); err != nil {
+				return err
+			}
 			if err := g.load(); err != nil {
 				return err
 			}
@@ -543,6 +580,9 @@ func newConfigCmd(g *globals) *cobra.Command {
 		Use:   "init",
 		Short: "Write a starter configuration file (never overwrites)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := g.localOnly("config init"); err != nil {
+				return err
+			}
 			path := config.ResolvePath(g.configPath)
 			if err := config.WriteStarter(path); err != nil {
 				return err
@@ -555,18 +595,22 @@ func newConfigCmd(g *globals) *cobra.Command {
 		Use:   "show",
 		Short: "Print the effective configuration with secrets redacted",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if err := g.load(); err != nil {
-				return err
-			}
-			red := g.cfg.Redacted()
-			if g.output == "json" {
-				return printJSON(cmd.OutOrStdout(), red)
-			}
-			b, err := yaml.Marshal(red)
+			b, err := g.backend()
 			if err != nil {
 				return err
 			}
-			_, err = cmd.OutOrStdout().Write(b)
+			red, err := b.Config(ctxOf(cmd))
+			if err != nil {
+				return err
+			}
+			if g.output == "json" {
+				return printJSON(cmd.OutOrStdout(), red)
+			}
+			out, err := yaml.Marshal(red)
+			if err != nil {
+				return err
+			}
+			_, err = cmd.OutOrStdout().Write(out)
 			return err
 		},
 	})
@@ -608,12 +652,25 @@ func newHealthcheckCmd(g *globals) *cobra.Command {
 	return cmd
 }
 
-func newVersionCmd() *cobra.Command {
+func newVersionCmd(g *globals) *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
-		Short: "Print version information",
-		Run: func(cmd *cobra.Command, _ []string) {
+		Short: "Print version information (and the server's with --host)",
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			fmt.Fprintln(cmd.OutOrStdout(), version.String())
+			if g.remoteHost() == "" {
+				return nil
+			}
+			b, err := g.backend()
+			if err != nil {
+				return err
+			}
+			st, err := b.Status(ctxOf(cmd), false)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "server %s: qbt-replicator %s\n", g.remoteHost(), st.Version)
+			return nil
 		},
 	}
 }

@@ -68,8 +68,8 @@ if anyone else can reach it.
 
 ### API keys
 
-Scripts, dashboards, the remote CLI and MCP clients authenticate with API keys instead of
-the web login. Create them in **Config → API keys** or with
+Scripts, dashboards, the remote CLI (`qbt-replicator --host … --api-key …`) and MCP clients
+authenticate with API keys instead of the web login. Create them in **Config → API keys** or with
 `qbt-replicator apikey create <name> [--scope full]`; the key (`qbtr_…`) is shown once,
 only its hash is stored. Send it as `Authorization: Bearer qbtr_…` (or `X-Api-Key: qbtr_…`).
 

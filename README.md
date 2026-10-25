@@ -147,9 +147,23 @@ qbt-replicator healthcheck [--url ...]                # used by Docker HEALTHCHE
 qbt-replicator version
 ```
 
-Global flags: `-c/--config`, `--log-level`, `-o/--output table|json`.
+Global flags: `-c/--config`, `--log-level`, `-o/--output table|json`, `--host`, `--api-key`.
 
 Inside Docker: `docker exec qbt-replicator /qbt-replicator plan`.
+
+**Remote mode.** From any machine, point the CLI at a running qbt-replicator with an
+[API key](docs/configuration.md#api-keys); no config file or database is needed there:
+
+```sh
+export QBTR_HOST=https://replicator.lan QBTR_API_KEY=qbtr_...   # or --host / --api-key
+qbt-replicator status
+qbt-replicator history --since 24h
+qbt-replicator replicate 3f2a... --dry-run    # changes need a full-access key
+```
+
+Every command works remotely except `serve`, `apikey`, `config validate` and `config init`,
+which need the local files. `--host https://user:pass@host` uses the web login instead of a
+key. Rate-limited requests (`429`) with a short `Retry-After` are retried once.
 
 ## HTTP endpoints
 
@@ -162,7 +176,7 @@ Inside Docker: `docker exec qbt-replicator /qbt-replicator plan`.
 | GET | `/api/v1/notifications` | notifiers with pending/sent/failed counts |
 | POST | `/api/v1/notifications/test` `{"name"}` or `{"type","url",…}` | send a test notification |
 | POST | `/actions/sync`, `/actions/replicate`, `/actions/unreplicate` | UI form actions |
-| GET | `/api/v1/status[?fresh=1]`, `/api/v1/torrents`, `/api/v1/plan`, `/api/v1/events?limit=N&before=ID&level=&instance=&hash=`, `/api/v1/history?limit=N&before=ID&hash=&search=&instance=&type=&result=`, `/api/v1/config` | JSON |
+| GET | `/api/v1/status[?fresh=1]`, `/api/v1/torrents`, `/api/v1/plan`, `/api/v1/events?limit=N&before=ID&level=&instance=&hash=`, `/api/v1/history?limit=N&before=ID&hash=&search=&instance=&type=&result=&since=24h|RFC3339`, `/api/v1/config` | JSON |
 | POST | `/api/v1/sync` `{"dry_run":bool}` | run a pass, returns the report |
 | POST | `/api/v1/replicate` `{"hash","from","to":[],"force","dry_run"}` | manual replication |
 | POST | `/api/v1/unreplicate` `{"hash","on":[],"exclude","dry_run"}` | remove replicas (files kept); `exclude` tags the source so rules skip it |
