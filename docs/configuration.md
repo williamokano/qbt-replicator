@@ -80,7 +80,10 @@ only its hash is stored. Send it as `Authorization: Bearer qbtr_…` (or `X-Api-
 
 - No key can create, list or revoke keys, or read secrets: passwords, qBittorrent API
   keys and notification tokens are always masked.
-- Keys work for `/api/` and `/metrics` only; the web UI uses the login.
+- Keys work for `/api/`, `/mcp` and `/metrics` only; the web UI uses the login.
+- The MCP endpoint (`/mcp`) always needs a key or the login, even when nothing else is
+  protected. Read-only keys only see the read tools; each tool call takes a read or change
+  token from the key's rate limit.
 - Once a key exists, the JSON API refuses requests without a key or the web login,
   even when the login is disabled. Without keys the API behaves as before.
 - Each key is rate limited (`server.api.rate_limit`); over the limit the API answers

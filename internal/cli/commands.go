@@ -13,11 +13,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 	"go.yaml.in/yaml/v3"
 
 	"github.com/williamokano/qbt-replicator/internal/app"
+	"github.com/williamokano/qbt-replicator/internal/client"
 	"github.com/williamokano/qbt-replicator/internal/config"
+	"github.com/williamokano/qbt-replicator/internal/mcpserver"
 	"github.com/williamokano/qbt-replicator/internal/replicator"
 	"github.com/williamokano/qbt-replicator/internal/store"
 	"github.com/williamokano/qbt-replicator/internal/version"
@@ -552,6 +555,37 @@ Keys are managed here or in the web UI (Config > API keys), never through the AP
 			return nil
 		},
 	})
+	return cmd
+}
+
+func newMCPCmd(g *globals) *cobra.Command {
+	var readOnly bool
+	cmd := &cobra.Command{
+		Use:   "mcp",
+		Short: "Run an MCP server over stdio for AI assistants (Claude Desktop, …)",
+		Long: `Speaks the Model Context Protocol on stdin/stdout so an AI assistant can
+inspect and drive qbt-replicator. With --host it uses a running qbt-replicator's
+API (a read-only key gets only the read tools); without it, the local config and
+database. A running server also offers MCP over HTTP at /mcp.`,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			b, err := g.backend()
+			if err != nil {
+				return err
+			}
+			if c, ok := b.(*client.Client); ok {
+				id, err := c.WhoAmI(ctxOf(cmd))
+				if err != nil {
+					return err
+				}
+				readOnly = readOnly || id.Scope != app.ScopeFull
+			}
+			srv := mcpserver.New(b, mcpserver.Options{ReadOnly: readOnly})
+			ctx, stop := signal.NotifyContext(ctxOf(cmd), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+			return srv.Run(ctx, &mcp.StdioTransport{})
+		},
+	}
+	cmd.Flags().BoolVar(&readOnly, "read-only", false, "offer only the tools that read")
 	return cmd
 }
 

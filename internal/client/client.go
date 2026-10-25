@@ -290,3 +290,17 @@ func (c *Client) TestNotification(ctx context.Context, name string) error {
 	}
 	return nil
 }
+
+// Identity describes the credentials the server sees.
+type Identity struct {
+	Auth  string `json:"auth"` // api_key, login or none
+	Name  string `json:"name,omitempty"`
+	Scope string `json:"scope"` // read or full
+}
+
+// WhoAmI returns how the server authenticated this client.
+func (c *Client) WhoAmI(ctx context.Context) (Identity, error) {
+	var id Identity
+	err := c.do(ctx, http.MethodGet, "api/v1/whoami", nil, nil, &id)
+	return id, err
+}
