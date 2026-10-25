@@ -121,6 +121,8 @@ func newServer(svc *app.Service, logger *slog.Logger) (*Server, error) {
 	mux.HandleFunc("POST /config/api-keys/{id}/revoke", s.apiKeyRevoke)
 
 	mux.HandleFunc("GET /api/v1/status", s.apiStatus)
+	mux.HandleFunc("GET /api/v1/whoami", s.apiWhoAmI)
+	mux.Handle(mcpPath, s.mcpHandler())
 	mux.HandleFunc("GET /api/v1/torrents", s.apiTorrents)
 	mux.HandleFunc("GET /api/v1/plan", s.apiPlan)
 	mux.HandleFunc("GET /api/v1/events", s.apiEvents)
@@ -214,8 +216,9 @@ func requestKey(r *http.Request) string {
 	return ""
 }
 
-// keyPath reports whether API keys are accepted for a path: the JSON API and metrics.
-func keyPath(p string) bool { return strings.HasPrefix(p, "/api/") || p == "/metrics" }
+// keyPath reports whether API keys are accepted for a path: the JSON API,
+// the MCP endpoint and metrics.
+func keyPath(p string) bool { return strings.HasPrefix(p, "/api/") || p == mcpPath || p == "/metrics" }
 
 func clientIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
@@ -256,6 +259,10 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		if r.URL.Path == mcpPath { // never open: MCP clients act on the user's behalf
+			writeErr(w, http.StatusUnauthorized, errors.New("the MCP endpoint needs an API key (Authorization: Bearer qbtr_…)"))
+			return
+		}
 		if strings.HasPrefix(r.URL.Path, "/api/") {
 			has, err := s.svc.HasAPIKeys(r.Context())
 			if err != nil {
@@ -294,14 +301,17 @@ func (s *Server) withAPIKey(w http.ResponseWriter, r *http.Request, secret strin
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	write := r.Method != http.MethodGet && r.Method != http.MethodHead
-	if write && k.Scope != app.ScopeFull {
-		writeErr(w, http.StatusForbidden, errors.New("this API key is read-only"))
-		return
-	}
-	if ok, wait := s.limits.allow(k.ID, write, s.svc.Config().Server.API.RateLimit, now); !ok {
-		tooMany(w, wait, fmt.Sprintf("rate limit exceeded for API key %q", k.Name))
-		return
+	// MCP requests are all POSTs: scope and rate limits apply per tool call there.
+	if r.URL.Path != mcpPath {
+		write := r.Method != http.MethodGet && r.Method != http.MethodHead
+		if write && k.Scope != app.ScopeFull {
+			writeErr(w, http.StatusForbidden, errors.New("this API key is read-only"))
+			return
+		}
+		if ok, wait := s.limits.allow(k.ID, write, s.svc.Config().Server.API.RateLimit, now); !ok {
+			tooMany(w, wait, fmt.Sprintf("rate limit exceeded for API key %q", k.Name))
+			return
+		}
 	}
 	next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), apiKeyCtx{}, &k)))
 }

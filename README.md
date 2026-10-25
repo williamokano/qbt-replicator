@@ -48,6 +48,7 @@ JSON API**; every command and every UI button goes through the same service laye
 - JSON API with read-only / full-access **API keys** and per-key rate limits, `/healthz`,
   `/readyz`, Prometheus `/metrics`, optional basic auth.
 - Dry-run mode everywhere.
+- **MCP server** for AI assistants (HTTP at `/mcp`, or stdio), tools default to dry runs.
 
 ## Quick start (Docker)
 
@@ -141,6 +142,7 @@ qbt-replicator include <hash>                         # undo --exclude: rules re
 qbt-replicator history [search] [--hash H] [--instance X] [--type add] [--result error] [--since 24h]
 qbt-replicator events [--limit 50] [--level warn] [--hash H]   # activity log
 qbt-replicator apikey create <name> [--scope full] | list | revoke <id|name>
+qbt-replicator mcp [--read-only]                      # MCP server over stdio (local, or --host)
 qbt-replicator notify list | test <name>              # notification destinations, send a test message
 qbt-replicator config init | validate | show          # init writes a starter file; show redacts secrets
 qbt-replicator healthcheck [--url ...]                # used by Docker HEALTHCHECK
@@ -165,6 +167,50 @@ Every command works remotely except `serve`, `apikey`, `config validate` and `co
 which need the local files. `--host https://user:pass@host` uses the web login instead of a
 key. Rate-limited requests (`429`) with a short `Retry-After` are retried once.
 
+## AI assistants (MCP)
+
+qbt-replicator is an [MCP](https://modelcontextprotocol.io) server, so assistants such as
+Claude can answer "why isn't this torrent on qbt-3?" or "what was replicated today?" and,
+with a full-access key, replicate or remove replicas for you. It needs an
+[API key](docs/configuration.md#api-keys); a read-only key only gets the read tools.
+
+**Over HTTP** (the running server, endpoint `/mcp`), e.g. Claude Code:
+
+```sh
+claude mcp add --transport http qbt-replicator https://replicator.lan/mcp \
+  --header "Authorization: Bearer qbtr_..."
+```
+
+**Over stdio** (Claude Desktop and other clients that start a command): the binary
+forwards to the server, nothing else is needed on that machine:
+
+```json
+{
+  "mcpServers": {
+    "qbt-replicator": {
+      "command": "qbt-replicator",
+      "args": ["mcp", "--host", "https://replicator.lan"],
+      "env": { "QBTR_API_KEY": "qbtr_..." }
+    }
+  }
+}
+```
+
+| Tool | Does |
+|---|---|
+| `get_status` | Instance health, VPN port connected/firewalled, speeds, replicas, last pass |
+| `search_torrents` | Fuzzy search by name or hash prefix; where each torrent is source or replica |
+| `get_torrent` | One torrent: where it is, planned actions, **why it is skipped**, its history and activity |
+| `get_plan` | What the next pass will do and why torrents are skipped |
+| `get_history` / `get_activity` | Executed actions / activity log with filters (`since: 24h`, instance, type, result) |
+| `get_config` | Instances, rules, daemon and notification settings, secrets masked |
+| `sync`, `replicate`, `unreplicate`, `include` | Full-access keys only. **`dry_run` defaults to true**: the assistant shows what would happen and has to ask again with `dry_run: false` |
+| `test_instance`, `test_notification` | Full-access keys only. Connection and notification tests |
+
+Torrents can be named by hash, hash prefix or name; an ambiguous name returns the
+candidates. Every tool call counts against the key's [rate limit](docs/configuration.md#api-keys)
+(reads or changes). Configuration changes, API keys and secrets are not available over MCP.
+
 ## HTTP endpoints
 
 | Method | Path | |
@@ -181,6 +227,8 @@ key. Rate-limited requests (`429`) with a short `Retry-After` are retried once.
 | POST | `/api/v1/replicate` `{"hash","from","to":[],"force","dry_run"}` | manual replication |
 | POST | `/api/v1/unreplicate` `{"hash","on":[],"exclude","dry_run"}` | remove replicas (files kept); `exclude` tags the source so rules skip it |
 | POST | `/api/v1/include` `{"hash","dry_run"}` | remove the exclude tag again |
+| GET | `/api/v1/whoami` | how the request authenticated: `{auth, name, scope}` |
+| POST | `/mcp` | MCP (streamable HTTP, stateless); needs an API key or the login |
 | GET | `/healthz`, `/readyz`, `/metrics` | ops |
 
 Cross-origin POSTs are rejected (CSRF protection). Scripts authenticate with an

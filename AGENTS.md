@@ -59,6 +59,7 @@ internal/notify/           notifications: Telegram/webhook senders, outbox dispa
 internal/app/              Service façade used by BOTH cli and web (+ config reload)
 internal/client/           typed JSON API client (CLI remote mode --host)
 internal/backend/          operations shared by CLI and MCP: local service or remote client
+internal/mcpserver/        MCP tools over backend.Backend (HTTP /mcp and stdio)
 internal/cli/              cobra commands (thin adapters)
 internal/web/              handlers, templates, static assets (embedded)
 ```
@@ -84,6 +85,7 @@ Before pushing: `gofmt -l .` must be empty, `go mod tidy` must not change files,
 - Torrents tagged with `daemon.replica_tag` are owned by the replicator and are never
   treated as sources (prevents replication loops).
 - No orphan removal while any instance is unreachable.
+- MCP tools that change something default to `dry_run: true`; keep outputs compact.
 - API keys never manage API keys, never change `server.auth` and never see secrets; key
   management stays in the web UI (outside `/api/`) and the local CLI.
 - New user-facing operations go into `internal/app.Service` first, then get both a CLI
