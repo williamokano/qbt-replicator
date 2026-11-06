@@ -8,8 +8,8 @@ require (
 	github.com/prometheus/client_golang v1.25.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
-	go.yaml.in/yaml/v3 v3.0.5
-	modernc.org/sqlite v1.61.0
+	go.yaml.in/yaml/v3 v3.0.6
+	modernc.org/sqlite v1.61.1
 )
 
 require (
